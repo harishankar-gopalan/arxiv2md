@@ -2,3 +2,5 @@ User-agent: *
 Allow: /
 Allow: /api/
 Allow: /coderamp-labs/gitingest/
+
+Sitemap: https://arxiv2md.org/sitemap.xml

@@ -93,6 +93,12 @@ async def robots() -> FileResponse:
     return FileResponse(static_dir / "robots.txt")
 
 
+@app.get("/sitemap.xml", include_in_schema=False)
+async def sitemap() -> FileResponse:
+    """Serve the sitemap.xml file for search engine crawlers."""
+    return FileResponse(static_dir / "sitemap.xml", media_type="application/xml")
+
+
 @app.get("/llms.txt")
 async def llm_txt() -> FileResponse:
     """Serve the llm.txt file to provide information about the site to LLMs.
