@@ -1,5 +1,7 @@
 """Simple GET API endpoints for markdown conversion."""
 
+from __future__ import annotations
+
 from typing import Any
 
 from fastapi import APIRouter, Query, Request, status

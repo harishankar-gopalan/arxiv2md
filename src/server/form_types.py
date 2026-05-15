@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Annotated, TypeAlias
+from typing import Annotated
 
 from fastapi import Form
 
-StrForm: TypeAlias = Annotated[str, Form(...)]
-IntForm: TypeAlias = Annotated[int, Form(...)]
-OptStrForm: TypeAlias = Annotated[str | None, Form()]
+StrForm = Annotated[str, Form(...)]
+IntForm = Annotated[int, Form(...)]
+OptStrForm = Annotated[str | None, Form()]
