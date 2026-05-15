@@ -13,6 +13,8 @@ except ImportError as exc:  # pragma: no cover - runtime dependency check
 
 
 _EQUATION_TABLE_RE = re.compile(r"ltx_equationgroup|ltx_eqn_align|ltx_eqn_table")
+_EQUATION_NUMBER_RE = re.compile(r"^(.*)(\([0-9]+\))(.*)$")
+_LATEX_PREFIX_SUFFIX = "%@math@%"
 
 
 def convert_html_to_markdown(html: str, *, remove_refs: bool = False, remove_toc: bool = False) -> str:
@@ -54,7 +56,9 @@ def convert_html_to_markdown(html: str, *, remove_refs: bool = False, remove_toc
 
     blocks.extend(_serialize_children(root))
 
-    return "\n\n".join(block for block in blocks if block).strip()
+    return _check_and_handle_latex_prefix_suffix(
+        "\n\n".join(block for block in blocks if block).strip()
+    )
 
 
 def convert_fragment_to_markdown(html: str, *, remove_inline_citations: bool = False, base_url: str | None = None) -> str:
@@ -78,7 +82,9 @@ def convert_fragment_to_markdown(html: str, *, remove_inline_citations: bool = F
     if base_url:
         _resolve_image_urls(soup, base_url)
     blocks = _serialize_children(soup, remove_inline_citations=remove_inline_citations)
-    return "\n\n".join(block for block in blocks if block).strip()
+    return _check_and_handle_latex_prefix_suffix(
+        "\n\n".join(block for block in blocks if block).strip()
+    )
 
 
 def _find_document_root(soup: BeautifulSoup) -> Tag:
@@ -98,16 +104,96 @@ def _strip_unwanted_elements(soup: BeautifulSoup) -> None:
     for tag in soup.select("button.sr-only, div.package-alerts, div.ltx_pagination, footer"):
         tag.decompose()
 
+def _check_and_handle_latex_prefix_suffix(md: str) -> str:
+    parts = md.split(_LATEX_PREFIX_SUFFIX)
+    fixed_md = ""
+
+    def handle_endswith(part: str) -> str:
+        # no op is sufficient
+        return part
+
+    def handle_startswith(part: str) -> str:
+        # inject a space if there is a digit immediately after the
+        # terminating $ sign in latex
+        if part[0] == "$" and part[1].isdigit():
+            return part[0] + " " + part[1:]
+        else:
+            return part
+
+    def handle_both(part: str) -> str:
+        part = handle_startswith(part)
+        part = handle_endswith(part)
+        return part
+
+    for idx in range(len(parts)):
+        part = parts[idx]
+        if part.startswith("$") and part.endswith("$"):
+            fixed_md += handle_both(part)
+        elif part.endswith("$"):
+            fixed_md += handle_endswith(part)
+        elif part.startswith("$") and part[1].isdigit():
+            fixed_md += handle_startswith(part)
+        else:
+            fixed_md += part
+    return fixed_md
+
+
+def _correct_multiline_latex_handling(eqn_text: str) -> str:
+    mid = post = ""
+    if match := _EQUATION_NUMBER_RE.match(eqn_text):
+        eqn_text, mid, post = match.groups()
+    eqn_text = eqn_text.strip()
+    mid = mid.strip()
+    post = post.strip()
+
+    head = "$$"
+    tail = "$$"
+    if eqn_text.startswith("$$"):
+        head = ""
+    elif eqn_text.startswith("$"):
+        head = "$"
+
+    if eqn_text.endswith("$$"):
+        tail = ""
+    elif eqn_text.endswith("$"):
+        tail = "$"
+
+    return f"{head}{eqn_text}{tail} {mid} {post}"
+
+
+def _sanitize_latex_source(latex_source: str) -> str:
+    latex_source = re.sub(r"(?<!\\)%", "", latex_source)
+    if "\\text{" in latex_source:
+        new_latex = ""
+        count = 0
+        for ch in latex_source:
+            new_latex += ch
+            if new_latex.endswith("\\text{") or (count > 0 and new_latex.endswith("{")):
+                count += 1
+            elif new_latex.endswith("}") and count > 0:
+                count -= 1
+            elif new_latex.endswith("\\_") or new_latex.endswith("\\^"):
+                if count > 0:
+                    new_latex = new_latex[0:-2] + "{" + new_latex[-2:] + "}"
+                else:
+                    new_latex = new_latex[0:-2] + "_"
+        return new_latex
+    else:
+        latex_source = re.sub(r"\\([_^])", r"\1", latex_source)
+        latex_source = re.sub(r"\\(?=[\[\]])", "", latex_source)
+        return latex_source
+
+
+def _normalize_pure_text_content(text: str) -> str:
+    return text.replace("*", "\\*")
 
 def convert_all_mathml_to_latex(root: BeautifulSoup) -> None:
     for math in root.find_all("math"):
         annotation = math.find("annotation", attrs={"encoding": "application/x-tex"})
         if annotation and annotation.text:
             latex_source = annotation.text.strip()
-            latex_source = re.sub(r"(?<!\\)%", "", latex_source)
-            latex_source = re.sub(r"\\([_^])", r"\1", latex_source)
-            latex_source = re.sub(r"\\(?=[\[\]])", "", latex_source)
-            math.replace_with(f"${latex_source}$")
+            latex_source = _sanitize_latex_source(latex_source)
+            math.replace_with(f"${_LATEX_PREFIX_SUFFIX}{latex_source}{_LATEX_PREFIX_SUFFIX}$")
         else:
             math.replace_with(math.get_text(" ", strip=True))
 
@@ -223,17 +309,17 @@ def _is_internal_paper_link(href: str | None) -> bool:
 
 def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: bool = False) -> str:
     if isinstance(node, NavigableString):
-        return str(node)
+        return _normalize_pure_text_content(str(node))
 
     if node.name == "br":
         return "\n"
 
-    if node.name in {"em", "i"}:
+    if node.name in {"em", "i"} or "ltx_font_italic" in node.get("class", []):
         return f"*{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations)}*"
 
-    if node.name in {"strong", "b"}:
+    if node.name in {"strong", "b"} or "ltx_font_bold" in node.get("class", []):
         return f"**{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations)}**"
-
+    
     if node.name == "a":
         text = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations).strip()
         href = node.get("href")
@@ -266,6 +352,12 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
     if "ltx_note" in node.get("class", []):
         text = _normalize_text(_serialize_children_inline(node, remove_inline_citations=remove_inline_citations))
         return f"({text})" if text else ""
+    
+    if "ltx_tag_item" in node.get("class", []):
+        return ""
+    
+    if node.name in {"code"} or "ltx_font_typewriter" in node.get("class", []):
+        return f"`{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations)}`"
 
     return _serialize_children_inline(node, remove_inline_citations=remove_inline_citations)
 
@@ -312,7 +404,7 @@ def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> st
         eqn_text = _normalize_text(table.get_text(" ", strip=True))
         if not eqn_text:
             return ""
-        return f"$$ {eqn_text} $$"
+        return _correct_multiline_latex_handling(eqn_text)
 
     rows = []
     # Find rows in tbody, thead, tfoot, or directly in table
