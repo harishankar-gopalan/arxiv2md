@@ -13,8 +13,24 @@ except ImportError as exc:  # pragma: no cover - runtime dependency check
 
 
 _EQUATION_TABLE_RE = re.compile(r"ltx_equationgroup|ltx_eqn_align|ltx_eqn_table")
-_EQUATION_NUMBER_RE = re.compile(r"^(.*)(\([0-9]+\))(.*)$")
+_EQUATION_NUMBER_RE = re.compile(r"(.*?)(\([0-9]+\))([^\$]*)")
 _LATEX_PREFIX_SUFFIX = "%@math@%"
+_STRIP_LATEX_COMMANDS = [
+    r"\\leavevmode",
+    r"\\nobreak",
+    r"\\relax",
+    r"\\ignorespaces",
+    r"\\pagebreak",
+    r"\\newpage",
+    r"\\clearpage",
+    r"\\cleardoublepage",
+    r"\\allowbreak",
+    r"\\samepage",
+    r"\\strut",
+]
+_REPLACE_LATEX_COMMANDS = {
+    r"\\sans" : r"\\textsf"
+}
 
 
 def convert_html_to_markdown(html: str, *, remove_refs: bool = False, remove_toc: bool = False) -> str:
@@ -139,30 +155,39 @@ def _check_and_handle_latex_prefix_suffix(md: str) -> str:
 
 
 def _correct_multiline_latex_handling(eqn_text: str) -> str:
-    mid = post = ""
-    if match := _EQUATION_NUMBER_RE.match(eqn_text):
-        eqn_text, mid, post = match.groups()
-    eqn_text = eqn_text.strip()
-    mid = mid.strip()
-    post = post.strip()
+    eqn_modified = ""
+    matches = _EQUATION_NUMBER_RE.findall(eqn_text)
+    for match in matches:
+        eqn_text, mid, post = match
 
-    head = "$$"
-    tail = "$$"
-    if eqn_text.startswith("$$"):
-        head = ""
-    elif eqn_text.startswith("$"):
-        head = "$"
+        eqn_text = eqn_text.strip()
+        mid = mid.strip()
+        post = post.strip()
 
-    if eqn_text.endswith("$$"):
-        tail = ""
-    elif eqn_text.endswith("$"):
-        tail = "$"
+        head = "$$"
+        tail = "$$"
+        if eqn_text.startswith("$$"):
+            head = ""
+        elif eqn_text.startswith("$"):
+            head = "$"
 
-    return f"{head}{eqn_text}{tail} {mid} {post}"
+        if eqn_text.endswith("$$"):
+            tail = ""
+        elif eqn_text.endswith("$"):
+            tail = "$"
+        eqn_modified += f"{head}{eqn_text}{tail} {mid} {post}\n"
+    return eqn_modified
+    
 
 
 def _sanitize_latex_source(latex_source: str) -> str:
     latex_source = re.sub(r"(?<!\\)%", "", latex_source)
+    for pattern in _STRIP_LATEX_COMMANDS:
+        latex_source = re.sub(pattern, "", latex_source)
+    
+    for pattern, replacement in _REPLACE_LATEX_COMMANDS.items():
+        latex_source = re.sub(pattern, replacement, latex_source)
+    
     if "\\text{" in latex_source:
         new_latex = ""
         count = 0
@@ -218,7 +243,8 @@ def _resolve_image_urls(root: BeautifulSoup, base_url: str) -> None:
 
 
 def _remove_all_attributes(tag: Tag) -> None:
-    tag.attrs = {}
+    keep_attr = ["rowspan", "colspan", "class"]
+    tag.attrs = {k: v for k, v in tag.attrs.items() if k in keep_attr}
 
 
 def _serialize_children(container: Tag, *, remove_inline_citations: bool = False) -> list[str]:
@@ -307,21 +333,28 @@ def _is_internal_paper_link(href: str | None) -> bool:
     return "arxiv.org/html/" in href and "#" in href and "#bib" not in href
 
 
-def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: bool = False) -> str:
+def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: bool = False, indent: int = 0, nested_table: bool = False) -> str:
     if isinstance(node, NavigableString):
         return _normalize_pure_text_content(str(node))
 
     if node.name == "br":
         return "\n"
+    
+    if "ltx_ERROR" in node.get("class", []):
+        return ""
 
     if node.name in {"em", "i"} or "ltx_font_italic" in node.get("class", []):
-        return f"*{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations)}*"
+        return f"*{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()}*"
+
+    if "ltx_font_bold" in node.get("class", []) and "ltx_font_typewriter" in node.get("class", []):
+        code_block = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).replace('\\*', '*')
+        return f"**`{code_block}`**"
 
     if node.name in {"strong", "b"} or "ltx_font_bold" in node.get("class", []):
-        return f"**{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations)}**"
+        return f"**{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()}**"
     
     if node.name == "a":
-        text = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations).strip()
+        text = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()
         href = node.get("href")
         # Handle citation links specially
         if _is_citation_link(href):
@@ -337,33 +370,42 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
         return text
 
     if node.name == "sup":
-        text = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations).strip()
+        text = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()
         return f"^{text}" if text else ""
 
     if node.name == "cite":
         if remove_inline_citations and "ltx_cite" in node.get("class", []):
             return ""
-        return _serialize_children_inline(node, remove_inline_citations=remove_inline_citations)
+        return _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent)
 
     if node.name == "math":
         text = node.get_text(" ", strip=True)
         return f"${text}$" if text else ""
 
     if "ltx_note" in node.get("class", []):
-        text = _normalize_text(_serialize_children_inline(node, remove_inline_citations=remove_inline_citations))
+        text = _normalize_text(_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent))
         return f"({text})" if text else ""
     
     if "ltx_tag_item" in node.get("class", []):
         return ""
     
     if node.name in {"code"} or "ltx_font_typewriter" in node.get("class", []):
-        return f"`{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations)}`"
+        code_block = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).replace('\\*', '*')
+        return f"`{code_block}`"
+    
+    if node.name in {"ul", "ol"}:
+        lines = _serialize_list(node, remove_inline_citations=remove_inline_citations, indent=indent)
+        return "\n".join(lines) if lines else ""
 
-    return _serialize_children_inline(node, remove_inline_citations=remove_inline_citations)
+    if node.name == "table" and not nested_table:
+        table_md = _serialize_table(node, remove_inline_citations=remove_inline_citations)
+        return table_md
+
+    return _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, nested_table=nested_table)
 
 
-def _serialize_children_inline(tag: Tag, *, remove_inline_citations: bool = False) -> str:
-    return "".join(_serialize_inline(child, remove_inline_citations=remove_inline_citations) for child in tag.children)
+def _serialize_children_inline(tag: Tag, *, remove_inline_citations: bool = False, indent: int = 0, nested_table: bool = False) -> str:
+    return "".join(_serialize_inline(child, remove_inline_citations=remove_inline_citations, indent=indent, nested_table=nested_table) for child in tag.children)
 
 
 def _cleanup_inline_text(text: str) -> str:
@@ -381,8 +423,8 @@ def _serialize_list(list_tag: Tag, indent: int = 0, *, remove_inline_citations: 
             if isinstance(child, Tag) and child.name in {"ul", "ol"}:
                 nested_lists.append(child)
             else:
-                item_text_parts.append(_serialize_inline(child, remove_inline_citations=remove_inline_citations))
-        item_text = _cleanup_inline_text("".join(item_text_parts))
+                item_text_parts.append(_serialize_inline(child, remove_inline_citations=remove_inline_citations, indent=indent+1))
+        item_text = _cleanup_inline_text("".join(item_text_parts)) if indent else "".join(item_text_parts).strip()
         prefix = "  " * indent + "- "
         lines.append(prefix + item_text if item_text else prefix.rstrip())
         for nested in nested_lists:
@@ -398,6 +440,14 @@ def _serialize_toc(toc_nav: Tag) -> str:
     return "\n".join(lines)
 
 
+def _update_rowspan_info(rowspan_info: dict, values: list[str], row_idx: int) -> list[str]:
+    if rowspan_info:
+        for col_idx, row_span in rowspan_info.items():
+            for (row_start, row_end) in row_span:
+                if row_idx > row_start and row_idx < row_end:
+                    values.insert(col_idx, "")
+    return values
+
 def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> str:
     classes = " ".join(table.get("class", []))
     if _EQUATION_TABLE_RE.search(classes):
@@ -407,6 +457,7 @@ def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> st
         return _correct_multiline_latex_handling(eqn_text)
 
     rows = []
+    rowspan_info: dict[int, list[tuple[int, int]]] = {}
     # Find rows in tbody, thead, tfoot, or directly in table
     # Handle nested structure where rows might be inside tbody/thead/tfoot
     tbody_elements = table.find_all(["tbody", "thead", "tfoot"], recursive=False)
@@ -414,25 +465,45 @@ def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> st
     if tbody_elements:
         # Table has tbody/thead/tfoot structure - find rows within them
         for tbody in tbody_elements:
-            for row in tbody.find_all("tr", recursive=False):
+            for row_idx, row in enumerate(tbody.find_all("tr", recursive=False)):
                 cells = row.find_all(["th", "td"], recursive=False)
                 if not cells:
                     continue
                 values = []
-                for cell in cells:
-                    cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations)).replace("\n", "<br>")
+                for col_idx, cell in enumerate(cells):
+                    rowspan = cell.get("rowspan", None)
+                    if rowspan:
+                        value = (row_idx, row_idx + int(rowspan))
+                        span_info = rowspan_info.get(col_idx, [])
+                        span_info.append(value)
+
+                        rowspan_info[col_idx] = span_info 
+
+                    cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations, nested_table=True)).replace("\n", "<br>")
                     values.append(cell_text)
+                
+                values = _update_rowspan_info(rowspan_info, values, row_idx)
                 rows.append(values)
     else:
         # Table has no tbody/thead/tfoot - find rows directly in table
-        for row in table.find_all("tr", recursive=False):
+        for row_idx, row in enumerate(table.find_all("tr", recursive=False)):
             cells = row.find_all(["th", "td"], recursive=False)
             if not cells:
                 continue
             values = []
-            for cell in cells:
-                cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations)).replace("\n", "<br>")
+            for col_idx, cell in enumerate(cells):
+                rowspan = cell.get("rowspan", None)
+                if rowspan:
+                    value = (row_idx, row_idx + int(rowspan))
+                    span_info = rowspan_info.get(col_idx, [])
+                    span_info.append(value)
+
+                    rowspan_info[col_idx] = span_info
+                
+                cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations, nested_table=True)).replace("\n", "<br>")
                 values.append(cell_text)
+            
+            values = _update_rowspan_info(rowspan_info, values, row_idx)
             rows.append(values)
 
     if not rows:
