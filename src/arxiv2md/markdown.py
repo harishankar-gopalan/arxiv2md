@@ -131,7 +131,7 @@ def _check_and_handle_latex_prefix_suffix(md: str) -> str:
     def handle_startswith(part: str) -> str:
         # inject a space if there is a digit immediately after the
         # terminating $ sign in latex
-        if part[0] == "$" and part[1].isdigit():
+        if len(part) >= 2 and part[0] == "$" and part[1].isdigit():
             return part[0] + " " + part[1:]
         else:
             return part
