@@ -539,6 +539,77 @@ def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> st
         lines.append("| " + " | ".join(row) + " |")
     return "\n".join(lines)
 
+def _serialize_span_table(table: Tag, *, remove_inline_citations: bool = False) -> str:
+    classes = " ".join(table.get("class", []))
+    if _EQUATION_TABLE_RE.search(classes):
+        eqn_text = _normalize_text(table.get_text(" ", strip=True))
+        if not eqn_text:
+            return ""
+        return _correct_multiline_latex_handling(eqn_text)
+
+    rows = []
+    rowspan_info: dict[int, list[tuple[int, int]]] = {}
+    # Find rows in tbody, thead, tfoot, or directly in table
+    # Handle nested structure where rows might be inside tbody/thead/tfoot
+    tbody_elements = table.find_all(["tbody", "thead", "tfoot"], recursive=False)
+    
+    if tbody_elements:
+        # Table has tbody/thead/tfoot structure - find rows within them
+        for tbody in tbody_elements:
+            for row_idx, row in enumerate(tbody.find_all("tr", recursive=False)):
+                cells = row.find_all(["th", "td"], recursive=False)
+                if not cells:
+                    continue
+                values = []
+                for col_idx, cell in enumerate(cells):
+                    rowspan = cell.get("rowspan", None)
+                    if rowspan:
+                        value = (row_idx, row_idx + int(rowspan))
+                        span_info = rowspan_info.get(col_idx, [])
+                        span_info.append(value)
+
+                        rowspan_info[col_idx] = span_info 
+
+                    cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations, nested_table=True)).replace("\n", "<br>")
+                    values.append(cell_text)
+                
+                values = _update_rowspan_info(rowspan_info, values, row_idx)
+                rows.append(values)
+    else:
+        # Table has no tbody/thead/tfoot - find rows directly in table
+        for row_idx, row in enumerate(table.find_all("span", attrs={"class": "ltx_tr"}, recursive=False)):
+            cells = row.find_all("span", attrs={"class": "ltx_td"}, recursive=False)
+            if not cells:
+                continue
+            values = []
+            for col_idx, cell in enumerate(cells):
+                rowspan = cell.get("rowspan", None)
+                if rowspan:
+                    value = (row_idx, row_idx + int(rowspan))
+                    span_info = rowspan_info.get(col_idx, [])
+                    span_info.append(value)
+
+                    rowspan_info[col_idx] = span_info
+                
+                cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations, nested_table=True)).replace("\n", "<br>")
+                values.append(cell_text)
+            
+            values = _update_rowspan_info(rowspan_info, values, row_idx)
+            rows.append(values)
+
+    if not rows:
+        return ""
+
+    max_cols = max(len(row) for row in rows)
+    normalized = [row + [""] * (max_cols - len(row)) for row in rows]
+    header = normalized[0]
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join("---" for _ in header) + " |",
+    ]
+    for row in normalized[1:]:
+        lines.append("| " + " | ".join(row) + " |")
+    return "\n".join(lines)
 
 def _serialize_figure(figure: Tag, *, remove_inline_citations: bool = False) -> str:
     # Check if this is a table figure (ltx_table class)
@@ -561,19 +632,30 @@ def _serialize_figure(figure: Tag, *, remove_inline_citations: bool = False) -> 
             if table_md:
                 lines.append(table_md)
         elif caption:
-            # Fallback if no table found but has caption
-            lines.append(f"Table: {caption}")
+            span_table = figure.find("span", attrs={"class": "ltx_tabular"})
+            if span_table:
+                span_table_md = _serialize_span_table(span_table, remove_inline_citations=remove_inline_citations)
+                if caption:
+                    lines.append(f"**{caption}**")
+                if span_table_md:
+                    lines.append(span_table_md)
+            else:
+                # Fallback if no table found but has caption
+                lines.append(f"Table: {caption}")
     else:
         # Handle regular image figures
         img = figure.find("img")
         src = img.get("src") if img else None
         alt = img.get("alt") if img else None
-
-        if caption:
-            lines.append(f"Figure: {caption}")
         if src:
             image_label = alt or "Image"
-            lines.append(f"{image_label}: {src}")
+            lines.append(f"![{image_label}]({src})")
+
+        if caption:
+            if not caption.lower().startswith("figure"):
+                lines.append(f"Figure: {caption}")
+            else:
+                lines.append(f"{caption}")
 
     return "\n".join(lines).strip()
 
