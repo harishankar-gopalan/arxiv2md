@@ -236,10 +236,29 @@ def _resolve_image_urls(root: BeautifulSoup, base_url: str) -> None:
     # Ensure base_url ends with '/' so urljoin resolves relative paths correctly
     if not base_url.endswith("/"):
         base_url += "/"
+    
+    arxiv_id = base_url.split("/")[-2]
+
+    if "ar5iv.labs.arxiv.org" in base_url:
+        base_url = "https://ar5iv.labs.arxiv.org"
+        arxiv_id = ""
+
     for img in root.find_all("img"):
         src = img.get("src")
         if src and not src.startswith(("http://", "https://", "data:")):
-            img["src"] = urljoin(base_url, src)
+            if arxiv_id and src.startswith(arxiv_id):
+                # most of papers have the image src values that already have the
+                # form of {arxiv_id}/{fig_name} and not just {fig_name}
+                # so the base url essentially in that case needs to be only
+                # something like https://arxiv.org/html/ and so we remove the
+                # trailing '/' combined with urljoin's behavior
+                #
+                # if the base_url is an ar5iv url then the image urls are
+                # relative to the base domain which we hardcode and that case
+                # will always operate through the 'else' path
+                img["src"] = urljoin(base_url[:-1], src)
+            else:
+                img["src"] = urljoin(base_url, src)
 
 
 def _remove_all_attributes(tag: Tag) -> None:
