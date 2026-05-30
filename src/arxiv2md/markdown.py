@@ -344,6 +344,16 @@ def _is_citation_link(href: str | None) -> bool:
         return False
     return "#bib." in href or href.startswith("#bib")
 
+def _is_invalid_citation(cite_tag):
+    children = [child for child in cite_tag.children if child.name is not None]
+    
+    return bool(children) and all(
+        child.name == 'span' and
+        'ltx_missing_citation' in child.get('class', []) and
+        'ltx_ref_self' in child.get('class', [])
+        for child in children
+    )
+
 
 def _is_internal_paper_link(href: str | None) -> bool:
     """Check if a link is an internal paper section reference (e.g., arxiv.org/html/...#S2.SS1)."""
@@ -393,6 +403,9 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
         return f"^{text}" if text else ""
 
     if node.name == "cite":
+        if _is_invalid_citation(node):
+            return ""
+        
         if remove_inline_citations and "ltx_cite" in node.get("class", []):
             return ""
         return _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent)
