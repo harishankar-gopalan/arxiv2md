@@ -180,6 +180,10 @@ def _iter_headings(root: Tag) -> Iterable[Tag]:
             continue
         if heading.find_parent(class_=re.compile(r"ltx_abstract")):
             continue
+        if "ltx_runin" in heading.get("class", []):
+            # cases where h6 tags are used for local heading for theorems,
+            # corollary, remarks etc.
+            continue
         yield heading
 
 

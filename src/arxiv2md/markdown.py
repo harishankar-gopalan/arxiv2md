@@ -28,9 +28,34 @@ _STRIP_LATEX_COMMANDS = [
     r"\\samepage",
     r"\\strut",
 ]
+
+def _substitute_slash_in_latex(m) -> str:
+    """
+    Handles latex expressions which in MathML annotation are like the below:
+    S=\\textit{SV\/}\\rule{0.0pt}{4.30554pt}
+    The problematic part is "\/" in the {SV\/} as this is invalid, all such cases
+    arrive from the original source where there was a space followed by the "\ ",
+    but for some reason conversion from HTML to LaTeX renders it as "\/".
+
+    So we are handling it using this workaround here.
+
+    Parameters
+    ----------
+    m : re.Match
+        Each match object is passed iteratively to this callback method from
+        re.sub call
+
+    Returns
+    -------
+    str
+        Returns the replaced string
+    """
+    return m.group(1) + "\\ " + m.group(3)
+
 _REPLACE_LATEX_COMMANDS = {
     r"\\sans" : r"\\textsf",
     r"\\mbox" : r"\\text",
+    r"(?m)(\{[^\\/]*)(\\/)(\})" : _substitute_slash_in_latex,
 }
 
 
