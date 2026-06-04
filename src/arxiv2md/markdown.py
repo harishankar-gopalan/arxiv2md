@@ -29,7 +29,8 @@ _STRIP_LATEX_COMMANDS = [
     r"\\strut",
 ]
 _REPLACE_LATEX_COMMANDS = {
-    r"\\sans" : r"\\textsf"
+    r"\\sans" : r"\\textsf",
+    r"\\mbox" : r"\\text",
 }
 
 
@@ -662,7 +663,7 @@ def _serialize_figure(figure: Tag, *, remove_inline_citations: bool = False) -> 
         alt = img.get("alt") if img else None
         if src:
             image_label = alt or "Image"
-            lines.append(f"![{image_label}]({src})")
+            lines.append(f"![{image_label}]({src})  ")
 
         if caption:
             if not caption.lower().startswith("figure"):

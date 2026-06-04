@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable
 
+from arxiv2md.markdown import convert_fragment_to_markdown
 from arxiv2md.schemas import SectionNode
 
 
@@ -61,9 +62,11 @@ def _find_document_root(soup: BeautifulSoup) -> Tag:
 def _extract_title(soup: BeautifulSoup) -> str | None:
     title_tag = soup.find("h1", class_=re.compile(r"ltx_title"))
     if title_tag:
-        return title_tag.get_text(" ", strip=True)
+        # handle possibility of bold/italics/latex in title
+        return convert_fragment_to_markdown(html=str(title_tag)).strip() # title_tag.get_text(" ", strip=True)
     if soup.title:
-        return soup.title.get_text(" ", strip=True)
+        # handle possibility of bold/italics/latex in title
+        return convert_fragment_to_markdown(html=str(soup.title)).strip() # soup.title.get_text(" ", strip=True)
     return None
 
 
@@ -136,7 +139,13 @@ def _extract_abstract(soup: BeautifulSoup) -> str | None:
     abstract = soup.find(class_=re.compile(r"ltx_abstract"))
     if not abstract:
         return None
-    return abstract.get_text(" ", strip=True)
+    
+    # Section header for abstract is already added in 
+    # output_formatter._render_content, so omit extract 'Abstract' titling
+    abstract_title = abstract.find(class_="ltx_title_abstract")
+    if abstract_title:
+        abstract_title.decompose()
+    return convert_fragment_to_markdown(html=str(abstract)).strip() # abstract.get_text(" ", strip=True)
 
 
 def _extract_sections(root: Tag) -> list[SectionNode]:
