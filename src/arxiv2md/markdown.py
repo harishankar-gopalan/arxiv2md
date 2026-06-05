@@ -27,6 +27,8 @@ _STRIP_LATEX_COMMANDS = [
     r"\\allowbreak",
     r"\\samepage",
     r"\\strut",
+    r"\\sc",
+    r"\\textsc",
 ]
 
 def _substitute_slash_in_latex(m) -> str:
@@ -177,6 +179,11 @@ def _check_and_handle_latex_prefix_suffix(md: str) -> str:
             fixed_md += handle_startswith(part)
         else:
             fixed_md += part
+    # cases where two inline latex expressions are one after the other and finally
+    # get concatenated, they contain $ $ which is end of one expr and start of another,
+    # however in our flow we are already surrounding the full expr by $$ $$ so we 
+    # need to remove such occurences within a single line.
+    fixed_md = fixed_md.replace("$ $", " ")
     return fixed_md
 
 
@@ -299,6 +306,25 @@ def _serialize_children(container: Tag, *, remove_inline_citations: bool = False
             continue
         if not isinstance(child, Tag):
             continue
+        if (
+            child.name == "div"
+            and container.name == "div"
+            and "span" in [grand_child.name for grand_child in child.children]
+        ) or (
+            child.name == "span"
+            and container.name == "span"
+            and "ltx_para" in child.get("class", [])
+            and "ltx_theorem" in container.get("class", [])
+        ):
+            # these checks are very specific cases where the NavigableString nodes
+            # within _serialize_children get totally ignored due to which certain
+            # content gets missed, these checks make it more robust to handle
+            # such cases similar to para
+            # the main issue is these are cases where a <div> is followed by nested
+            # <span> tags whereas the general behavior is presence of <p> tags
+            # which is what is properly handled by default
+            # these checks handle specific edge cases came across during testing
+            blocks.extend([_serialize_paragraph(child, remove_inline_citations=remove_inline_citations)])
         blocks.extend(_serialize_block(child, remove_inline_citations=remove_inline_citations))
     return blocks
 
