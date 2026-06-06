@@ -13,8 +13,9 @@ except ImportError as exc:  # pragma: no cover - runtime dependency check
 
 
 _EQUATION_TABLE_RE = re.compile(r"ltx_equationgroup|ltx_eqn_align|ltx_eqn_table")
-_EQUATION_NUMBER_RE = re.compile(r"(.*?)(\([0-9]+\))([^\$]*)")
-_LATEX_PREFIX_SUFFIX = "%@math@%"
+_EQUATION_NUMBER_RE = re.compile(r"(.*?)(\([0-9]+\))(?![^%]*%@math_en@%)([^\$]*)")
+_LATEX_PREFIX = "%@math_st@%"
+_LATEX_SUFFIX = "%@math_en@%"
 _STRIP_LATEX_COMMANDS = [
     r"\\leavevmode",
     r"\\nobreak",
@@ -31,7 +32,7 @@ _STRIP_LATEX_COMMANDS = [
     r"\\textsc",
 ]
 
-def _substitute_slash_in_latex(m) -> str:
+def _substitute_slash_in_latex(m: re.Match) -> str:
     """
     Handles latex expressions which in MathML annotation are like the below:
     S=\\textit{SV\/}\\rule{0.0pt}{4.30554pt}
@@ -54,10 +55,49 @@ def _substitute_slash_in_latex(m) -> str:
     """
     return m.group(1) + "\\ " + m.group(3)
 
+def _substitute_0pt(m: re.Match) -> str:
+    """
+    Handles cases where for some reason arxiv.html and ar5iv.html files convert the
+    character 'n' to '0pt' while rendering. However there are genuine cases where
+    '0pt' is present within '\\rule' directive of LaTeX which shouldnt be replaced
+    with 'n'. In future if there are more such cases where the replacement should
+    not happen, modify the regex in the below dict.
+
+    Parameters
+    ----------
+    m : re.Match
+        Each match object is passed iteratively to this callback method from
+        re.sub call
+
+    Returns
+    -------
+    str
+        Returns the replaced string
+    """
+    if m.group(1):
+        return m.group(1).replace("0pt", "n")
+    return m.group(0)
+
 _REPLACE_LATEX_COMMANDS = {
-    r"\\sans" : r"\\textsf",
-    r"\\mbox" : r"\\text",
-    r"(?m)(\{[^\\/]*)(\\/)(\})" : _substitute_slash_in_latex,
+    r"\\sans": r"\\textsf",
+    r"\\mbox": r"\\text",
+    r"(?m)(\{[^\\/]*)(\\/)(\})": _substitute_slash_in_latex,
+    # very specific case for the paper https://arxiv.org/html/2310.17813 where 
+    # HTML itself is wrong and gives the string 0pt instead of n
+    r"\\rule\{[^}]*\}\{[^}]*\}|(0pt)": _substitute_0pt,
+}
+
+_FINAL_REPLACE_PATTERNS = {
+    # cases where two inline latex expressions are one after the other and finally
+    # get concatenated, they contain $ $ which is end of one expr and start of another,
+    # however in our flow we are already surrounding the full expr by $$ $$ so we 
+    # need to remove such occurences within a single line.
+    r"\$ \$" : " ",
+
+    # cases where a ltx_bold and ltx_italic text appear next to each other without
+    # block level tags, in which case the pattern appears as *** in converted MD
+    # which does not render as needed
+    r"(?<!\\)\*{3}" : "** *",
 }
 
 
@@ -147,9 +187,11 @@ def _strip_unwanted_elements(soup: BeautifulSoup) -> None:
         tag.decompose()
     for tag in soup.select("button.sr-only, div.package-alerts, div.ltx_pagination, footer"):
         tag.decompose()
+    for tag in soup.select(".ltx_note_content > .ltx_note_mark,.ltx_note_content > .ltx_tag_note"):
+        tag.decompose()
 
 def _check_and_handle_latex_prefix_suffix(md: str) -> str:
-    parts = md.split(_LATEX_PREFIX_SUFFIX)
+    parts = re.split(f"{_LATEX_PREFIX}|{_LATEX_SUFFIX}", md)
     fixed_md = ""
 
     def handle_endswith(part: str) -> str:
@@ -179,11 +221,9 @@ def _check_and_handle_latex_prefix_suffix(md: str) -> str:
             fixed_md += handle_startswith(part)
         else:
             fixed_md += part
-    # cases where two inline latex expressions are one after the other and finally
-    # get concatenated, they contain $ $ which is end of one expr and start of another,
-    # however in our flow we are already surrounding the full expr by $$ $$ so we 
-    # need to remove such occurences within a single line.
-    fixed_md = fixed_md.replace("$ $", " ")
+    
+    for srch, repl in _FINAL_REPLACE_PATTERNS.items():
+        fixed_md = re.sub(srch, repl, fixed_md)
     return fixed_md
 
 
@@ -251,7 +291,7 @@ def convert_all_mathml_to_latex(root: BeautifulSoup) -> None:
         if annotation and annotation.text:
             latex_source = annotation.text.strip()
             latex_source = _sanitize_latex_source(latex_source)
-            math.replace_with(f"${_LATEX_PREFIX_SUFFIX}{latex_source}{_LATEX_PREFIX_SUFFIX}$")
+            math.replace_with(f"${_LATEX_PREFIX}{latex_source}{_LATEX_SUFFIX}$")
         else:
             math.replace_with(math.get_text(" ", strip=True))
 
@@ -449,6 +489,15 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
         if href:
             return f"[{text or href}]({href})"
         return text
+
+    if node.name == "span" and "ltx_role_footnote" in node.get("class", []):
+        text = _normalize_pure_text_content(node.get_text(" ", strip=True))
+        return f"<sup>{text}</sup>"
+
+    if "ltx_note_mark" in node.get("class", []) or "ltx_note_content" in node.get("class", []):
+        # footnote already handled in the previous check when the parent tag is
+        # processed, so skipping double processing here
+        return ""
 
     if node.name == "sup":
         text = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()
