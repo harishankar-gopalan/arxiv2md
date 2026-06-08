@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import re
 from urllib.parse import urljoin
+from base64 import b64decode
 
 try:
     from bs4 import BeautifulSoup
@@ -115,6 +117,7 @@ def convert_html_to_markdown(html: str, *, remove_refs: bool = False, remove_toc
             ref.decompose()
 
     convert_all_mathml_to_latex(soup)
+    convert_all_ltx_listing_to_md(soup)
     fix_tabular_tables(soup)
 
     root = _find_document_root(soup)
@@ -162,6 +165,7 @@ def convert_fragment_to_markdown(html: str, *, remove_inline_citations: bool = F
     soup = BeautifulSoup(html, "html.parser")
     _strip_unwanted_elements(soup)
     convert_all_mathml_to_latex(soup)
+    convert_all_ltx_listing_to_md(soup)
     fix_tabular_tables(soup)
     if base_url:
         _resolve_image_urls(soup, base_url)
@@ -189,6 +193,37 @@ def _strip_unwanted_elements(soup: BeautifulSoup) -> None:
         tag.decompose()
     for tag in soup.select(".ltx_note_content > .ltx_note_mark,.ltx_note_content > .ltx_tag_note"):
         tag.decompose()
+
+def _format_content(cont: str, indent: int = 2) -> str:
+    try:
+        cont = json.dumps(json.loads(cont), indent=indent)
+        print(cont)
+    except json.JSONDecodeError:
+        # ignore as there could be some ltx_listing content
+        # which is not actually json content in which case,
+        # return the original content as is.
+        pass
+    return cont
+
+def convert_all_ltx_listing_to_md(soup: BeautifulSoup) -> None:
+    for ltx_list_data in soup.select(".ltx_lstlisting > .ltx_listing_data"):
+        ltx_list_data_a = ltx_list_data.find("a")
+        if ltx_list_data_a:
+            cont = ltx_list_data_a.get("href", "").split(",")
+            if len(cont) == 2:
+                cont = b64decode(cont[-1]).decode("utf-8")
+            else:
+                cont = ""
+            
+            pre_tag = soup.new_tag("pre")
+            pre_tag["class"] = "ltx_listing_pre"
+            pre_tag.string = f"```\n{_format_content(cont)}\n```"
+
+            parent_node = ltx_list_data.parent
+            parent_node.clear(decompose=True)
+            parent_node.append(pre_tag)
+        else:
+            pass
 
 def _check_and_handle_latex_prefix_suffix(md: str) -> str:
     parts = re.split(f"{_LATEX_PREFIX}|{_LATEX_SUFFIX}", md)
@@ -353,8 +388,19 @@ def _serialize_children(container: Tag, *, remove_inline_citations: bool = False
         ) or (
             child.name == "span"
             and container.name == "span"
-            and "ltx_para" in child.get("class", [])
-            and "ltx_theorem" in container.get("class", [])
+            and (
+                (
+                    "ltx_para" in child.get("class", [])
+                    and "ltx_theorem" in container.get("class", [])
+                )
+                or (
+                    "ltx_minipage" in container.get("class", [])
+                    and (
+                        "ltx_para" in child.get("class", [])
+                        or "ltx_p" in child.get("class", [])
+                    )
+                )
+            )
         ):
             # these checks are very specific cases where the NavigableString nodes
             # within _serialize_children get totally ignored due to which certain
@@ -379,6 +425,9 @@ def _serialize_block(tag: Tag, *, remove_inline_citations: bool = False) -> list
         if not heading:
             return []
         return [f"{'#' * level} {heading}"]
+
+    if tag.name == "pre" and "ltx_listing_pre" in tag.get("class", []):
+        return [tag.string]
 
     if tag.name == "p":
         paragraph = _serialize_paragraph(tag, remove_inline_citations=remove_inline_citations)
@@ -458,21 +507,30 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
     if isinstance(node, NavigableString):
         return _normalize_pure_text_content(str(node))
 
+    if "ltx_minipage" in node.get("class", []):
+        # already handled via _serialize_children
+        return ""
+
     if node.name == "br":
         return "\n"
     
     if "ltx_ERROR" in node.get("class", []):
         return ""
+    
+    if node.name == "pre" and "ltx_listing_pre" in node.get("class", []):
+        # already would have been handled within _serialize_block
+        #
+        return ""
 
     if node.name in {"em", "i"} or "ltx_font_italic" in node.get("class", []):
-        return f"*{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()}*"
+        return f" *{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()}* "
 
     if "ltx_font_bold" in node.get("class", []) and "ltx_font_typewriter" in node.get("class", []):
         code_block = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).replace('\\*', '*')
-        return f"**`{code_block}`**"
+        return f" **`{_format_content(code_block)}`** "
 
     if node.name in {"strong", "b"} or "ltx_font_bold" in node.get("class", []):
-        return f"**{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()}**"
+        return f"**{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()}** "
     
     if node.name == "a":
         text = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()
@@ -524,6 +582,7 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
     
     if node.name in {"code"} or "ltx_font_typewriter" in node.get("class", []):
         code_block = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).replace('\\*', '*')
+        code_block = _format_content(code_block)
         return f"`{code_block}`"
     
     if node.name in {"ul", "ol"}:
