@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from arxiv2md.query_parser import parse_arxiv_input
 
 
@@ -16,7 +15,9 @@ from arxiv2md.query_parser import parse_arxiv_input
         ("cs/9901001v2", "cs/9901001v2", "v2"),
     ],
 )
-def test_parse_arxiv_inputs(input_text: str, arxiv_id: str, version: str | None) -> None:
+def test_parse_arxiv_inputs(
+    input_text: str, arxiv_id: str, version: str | None
+) -> None:
     query = parse_arxiv_input(input_text)
 
     assert query.arxiv_id == arxiv_id

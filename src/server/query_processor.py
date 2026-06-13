@@ -9,7 +9,13 @@ from arxiv2md.config import ARXIV2MD_CACHE_PATH
 from arxiv2md.ingestion import ingest_paper
 from arxiv2md.query_parser import parse_arxiv_input
 from arxiv2md.utils.logging_config import get_logger
-from server.models import IngestErrorResponse, IngestResponse, IngestSuccessResponse, PatternType
+
+from server.models import (
+    IngestErrorResponse,
+    IngestResponse,
+    IngestSuccessResponse,
+    PatternType,
+)
 from server.server_config import MAX_DISPLAY_SIZE
 
 logger = get_logger(__name__)
@@ -56,7 +62,10 @@ async def process_query(
     try:
         query = parse_arxiv_input(input_text)
     except Exception as exc:
-        logger.warning("Failed to parse arXiv input", extra={"input_text": input_text, "error": str(exc)})
+        logger.warning(
+            "Failed to parse arXiv input",
+            extra={"input_text": input_text, "error": str(exc)},
+        )
         return IngestErrorResponse(error=str(exc))
 
     query = query.model_copy(
@@ -88,7 +97,9 @@ async def process_query(
         digest_content = tree + "\n" + content
         _store_digest_content(query, digest_content)
     except Exception as exc:
-        logger.error("Query processing failed", extra={"url": query.html_url, "error": str(exc)})
+        logger.error(
+            "Query processing failed", extra={"url": query.html_url, "error": str(exc)}
+        )
         return IngestErrorResponse(error=str(exc))
 
     if len(content) > MAX_DISPLAY_SIZE:
@@ -123,7 +134,9 @@ def _log_success(url: str, summary: str) -> None:
     estimated_tokens = None
     token_marker = "Estimated tokens:"
     if token_marker in summary:
-        estimated_tokens = summary.split(token_marker, 1)[1].strip().splitlines()[0].strip()
+        estimated_tokens = (
+            summary.split(token_marker, 1)[1].strip().splitlines()[0].strip()
+        )
     logger.info(
         "Query processing completed successfully",
         extra={"url": url, "estimated_tokens": estimated_tokens},

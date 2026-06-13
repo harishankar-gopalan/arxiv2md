@@ -42,7 +42,11 @@ async def fetch_arxiv_html(
     source_url_path = cache_dir / "source_url.txt"
 
     if use_cache and _is_cache_fresh(html_path):
-        cached_source_url = source_url_path.read_text(encoding="utf-8").strip() if source_url_path.exists() else html_url
+        cached_source_url = (
+            source_url_path.read_text(encoding="utf-8").strip()
+            if source_url_path.exists()
+            else html_url
+        )
         return html_path.read_text(encoding="utf-8"), cached_source_url
 
     # Try primary URL (arxiv.org) first
@@ -77,7 +81,9 @@ async def _fetch_with_retries(url: str) -> str:
 
     for attempt in range(ARXIV2MD_FETCH_MAX_RETRIES + 1):
         try:
-            async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout, headers=headers, follow_redirects=True
+            ) as client:
                 response = await client.get(url)
 
             # Check for 404 specifically to provide a better error message

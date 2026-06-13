@@ -11,7 +11,6 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from arxiv2md.schemas import IngestionResult, SectionNode
 
-
 _ARXIV_ABS_BASE = "https://arxiv.org/abs/"
 
 
@@ -34,7 +33,12 @@ def format_paper(
         tree_lines.append("Abstract")
     tree_lines.append(_create_sections_tree(sections))
     tree = "\n".join(tree_lines)
-    content = _render_content(abstract=abstract, abstract_footnote=abstract_footnote, sections=sections, include_toc=include_toc)
+    content = _render_content(
+        abstract=abstract,
+        abstract_footnote=abstract_footnote,
+        sections=sections,
+        include_toc=include_toc,
+    )
 
     section_count = count_sections(sections)
     token_estimate = _format_token_count(tree + "\n" + content)
@@ -64,7 +68,9 @@ def format_paper(
             token_estimate=token_estimate,
         )
 
-    return IngestionResult(summary=summary, sections_tree=tree, content=content, frontmatter=frontmatter)
+    return IngestionResult(
+        summary=summary, sections_tree=tree, content=content, frontmatter=frontmatter
+    )
 
 
 def _generate_frontmatter(
@@ -79,23 +85,23 @@ def _generate_frontmatter(
     """Generate YAML frontmatter block with paper metadata."""
     lines = ["---"]
     if title:
-        lines.append(f"title: \"{_escape_yaml_string(title)}\"")
+        lines.append(f'title: "{_escape_yaml_string(title)}"')
     if version:
-        lines.append(f"version: \"{version}\"")
+        lines.append(f'version: "{version}"')
     if authors:
         quoted = ", ".join(f'"{_escape_yaml_string(a)}"' for a in authors)
         lines.append(f"authors: [{quoted}]")
-    lines.append(f"url: \"{_ARXIV_ABS_BASE}{arxiv_id}\"")
+    lines.append(f'url: "{_ARXIV_ABS_BASE}{arxiv_id}"')
     lines.append(f"sections: {section_count}")
     if token_estimate:
-        lines.append(f"estimated_tokens: \"{token_estimate}\"")
+        lines.append(f'estimated_tokens: "{token_estimate}"')
     lines.append("---")
     return "\n".join(lines)
 
 
 def _escape_yaml_string(value: str) -> str:
     """Escape characters that are special in YAML string values."""
-    return value.replace("\\", "\\\\").replace("\"", "\\\"")
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def count_sections(sections: Iterable[SectionNode]) -> int:
@@ -129,7 +135,9 @@ def _render_content(
         blocks.extend(_render_section(section))
         footnotes.extend(_render_footnotes(section))
 
-    return "\n\n".join(block for block in blocks if block).strip() + (("\n\n\n" + "\n".join(footnote for footnote in footnotes)) if footnotes else "")
+    return "\n\n".join(block for block in blocks if block).strip() + (
+        ("\n\n\n" + "\n".join(footnote for footnote in footnotes)) if footnotes else ""
+    )
 
 
 def _render_footnotes(section: SectionNode) -> str:
@@ -139,6 +147,7 @@ def _render_footnotes(section: SectionNode) -> str:
     for child in section.children:
         footnotes.extend(_render_footnotes(child))
     return footnotes
+
 
 def _render_section(section: SectionNode) -> list[str]:
     blocks: list[str] = []

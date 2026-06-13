@@ -48,7 +48,9 @@ def json_sink(message: Any) -> None:  # noqa: ANN401
     if record["extra"]:
         log_entry.update(record["extra"])
 
-    sys.stdout.write(json.dumps(log_entry, ensure_ascii=False, separators=(",", ":")) + "\n")
+    sys.stdout.write(
+        json.dumps(log_entry, ensure_ascii=False, separators=(",", ":")) + "\n"
+    )
 
 
 def format_extra_fields(record: dict) -> str:
@@ -69,14 +71,20 @@ def format_extra_fields(record: dict) -> str:
         return ""
 
     # Filter out loguru's internal extra fields
-    filtered_extra = {k: v for k, v in record["extra"].items() if not k.startswith("_") and k not in ["name"]}
+    filtered_extra = {
+        k: v
+        for k, v in record["extra"].items()
+        if not k.startswith("_") and k not in ["name"]
+    }
 
     # Handle nested extra structure - if there's an 'extra' key, use its contents
     if "extra" in filtered_extra and isinstance(filtered_extra["extra"], dict):
         filtered_extra = filtered_extra["extra"]
 
     if filtered_extra:
-        extra_json = json.dumps(filtered_extra, ensure_ascii=False, separators=(",", ":"))
+        extra_json = json.dumps(
+            filtered_extra, ensure_ascii=False, separators=(",", ":")
+        )
         return f" | {extra_json}"
 
     return ""

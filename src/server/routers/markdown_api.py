@@ -17,16 +17,27 @@ limiter = Limiter(key_func=get_remote_address)
 
 COMMON_API_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_200_OK: {"description": "Successful conversion"},
-    status.HTTP_400_BAD_REQUEST: {"model": IngestErrorResponse, "description": "Invalid URL or processing error"},
-    status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": IngestErrorResponse, "description": "Internal server error"},
+    status.HTTP_400_BAD_REQUEST: {
+        "model": IngestErrorResponse,
+        "description": "Invalid URL or processing error",
+    },
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": IngestErrorResponse,
+        "description": "Internal server error",
+    },
 }
 
 
-@router.get("/api/json", responses=COMMON_API_RESPONSES, response_model=MarkdownJsonResponse)
+@router.get(
+    "/api/json", responses=COMMON_API_RESPONSES, response_model=MarkdownJsonResponse
+)
 @limiter.limit("30/minute")
 async def api_json(
     request: Request,
-    url: str = Query(..., description="arXiv URL or ID (e.g., https://arxiv.org/abs/2301.07041 or 2301.07041)"),
+    url: str = Query(
+        ...,
+        description="arXiv URL or ID (e.g., https://arxiv.org/abs/2301.07041 or 2301.07041)",
+    ),
     remove_refs: bool = Query(default=True, description="Remove references section"),
     remove_toc: bool = Query(default=True, description="Remove table of contents"),
     remove_citations: bool = Query(default=True, description="Remove inline citations"),
@@ -59,7 +70,9 @@ async def api_json(
         )
 
         if isinstance(result, IngestErrorResponse):
-            return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content=result.model_dump())
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST, content=result.model_dump()
+            )
 
         response = MarkdownJsonResponse(
             arxiv_id=result.arxiv_id,
@@ -67,26 +80,38 @@ async def api_json(
             source_url=result.source_url,
             content=result.content,
         )
-        return JSONResponse(status_code=status.HTTP_200_OK, content=response.model_dump())
+        return JSONResponse(
+            status_code=status.HTTP_200_OK, content=response.model_dump()
+        )
 
     except ValueError as ve:
         error_response = IngestErrorResponse(error=f"Validation error: {ve!s}")
-        return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content=error_response.model_dump())
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST, content=error_response.model_dump()
+        )
 
     except Exception as exc:
         error_response = IngestErrorResponse(error=f"Internal server error: {exc!s}")
-        return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=error_response.model_dump())
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=error_response.model_dump(),
+        )
 
 
 @router.get("/api/markdown", responses=COMMON_API_RESPONSES)
 @limiter.limit("30/minute")
 async def api_markdown(
     request: Request,
-    url: str = Query(..., description="arXiv URL or ID (e.g., https://arxiv.org/abs/2301.07041 or 2301.07041)"),
+    url: str = Query(
+        ...,
+        description="arXiv URL or ID (e.g., https://arxiv.org/abs/2301.07041 or 2301.07041)",
+    ),
     remove_refs: bool = Query(default=True, description="Remove references section"),
     remove_toc: bool = Query(default=True, description="Remove table of contents"),
     remove_citations: bool = Query(default=True, description="Remove inline citations"),
-    frontmatter: bool = Query(default=False, description="Prepend YAML frontmatter with paper metadata"),
+    frontmatter: bool = Query(
+        default=False, description="Prepend YAML frontmatter with paper metadata"
+    ),
 ) -> PlainTextResponse:
     """Convert an arXiv paper to markdown and return raw markdown text.
 
@@ -120,7 +145,11 @@ async def api_markdown(
         return PlainTextResponse(status_code=status.HTTP_200_OK, content=md_content)
 
     except ValueError as ve:
-        return PlainTextResponse(status_code=status.HTTP_400_BAD_REQUEST, content=f"Validation error: {ve!s}")
+        return PlainTextResponse(
+            status_code=status.HTTP_400_BAD_REQUEST, content=f"Validation error: {ve!s}"
+        )
 
     except Exception as exc:
-        return PlainTextResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=f"Error: {exc!s}")
+        return PlainTextResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=f"Error: {exc!s}"
+        )

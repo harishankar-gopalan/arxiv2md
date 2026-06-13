@@ -10,7 +10,9 @@ def _make_sections() -> list[SectionNode]:
     """Create a minimal section tree for testing."""
     child = SectionNode(title="1.1 Background", level=3, html="<p>Background info.</p>")
     return [
-        SectionNode(title="1 Introduction", level=2, html="<p>Intro text.</p>", children=[child]),
+        SectionNode(
+            title="1 Introduction", level=2, html="<p>Intro text.</p>", children=[child]
+        ),
         SectionNode(title="2 Methods", level=2, html="<p>Methods text.</p>"),
     ]
 

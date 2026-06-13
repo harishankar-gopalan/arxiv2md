@@ -3,10 +3,10 @@
 from typing import Union
 from uuid import UUID
 
+from arxiv2md.config import ARXIV2MD_CACHE_PATH
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
-from arxiv2md.config import ARXIV2MD_CACHE_PATH
 from server.models import IngestRequest
 from server.routers_utils import COMMON_INGEST_RESPONSES, _perform_ingestion
 from server.server_config import DEFAULT_FILE_SIZE_KB
@@ -37,7 +37,9 @@ async def api_ingest(
     response = await _perform_ingestion(
         input_text=ingest_request.input_text,
         max_file_size=ingest_request.max_file_size,
-        pattern_type=ingest_request.pattern_type.value if ingest_request.pattern_type else None,
+        pattern_type=ingest_request.pattern_type.value
+        if ingest_request.pattern_type
+        else None,
         pattern=ingest_request.pattern,
         token=ingest_request.token,
         remove_refs=ingest_request.remove_refs,
@@ -120,10 +122,16 @@ async def download_ingest(
     # Normalize and validate the directory path
     directory = (ARXIV2MD_CACHE_PATH / str(ingest_id)).resolve()
     if not str(directory).startswith(str(ARXIV2MD_CACHE_PATH.resolve())):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Invalid ingest ID: {ingest_id!r}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Invalid ingest ID: {ingest_id!r}",
+        )
 
     if not directory.is_dir():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Digest {ingest_id!r} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Digest {ingest_id!r} not found",
+        )
 
     try:
         first_txt_file = next(directory.glob("*.txt"))
@@ -134,7 +142,9 @@ async def download_ingest(
         ) from exc
 
     try:
-        return FileResponse(path=first_txt_file, media_type="text/plain", filename=first_txt_file.name)
+        return FileResponse(
+            path=first_txt_file, media_type="text/plain", filename=first_txt_file.name
+        )
     except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

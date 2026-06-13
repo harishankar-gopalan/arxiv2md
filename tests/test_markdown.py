@@ -118,11 +118,11 @@ def test_table_inside_figure() -> None:
 def test_remove_inline_citations_citep() -> None:
     """Test that parenthetical citations (citep) are fully removed."""
     html = (
-        '<p>We study deceptive alignment '
+        "<p>We study deceptive alignment "
         '<cite class="ltx_cite ltx_citemacro_citep">'
         '(Anthropic, <a class="ltx_ref" href="#bib.bib4">2024</a>; '
         'OpenAI, <a class="ltx_ref" href="#bib.bib29">2024</a>)'
-        '</cite> in large models.</p>'
+        "</cite> in large models.</p>"
     )
 
     result = convert_fragment_to_markdown(html, remove_inline_citations=True)
@@ -136,10 +136,10 @@ def test_remove_inline_citations_citep() -> None:
 def test_remove_inline_citations_citet() -> None:
     """Test that textual citations (citet) are fully removed."""
     html = (
-        '<p>As shown by '
+        "<p>As shown by "
         '<cite class="ltx_cite ltx_citemacro_citet">'
         'Treutlein et al. (<a class="ltx_ref" href="#bib.bib40">2024</a>)'
-        '</cite>, this is important.</p>'
+        "</cite>, this is important.</p>"
     )
 
     result = convert_fragment_to_markdown(html, remove_inline_citations=True)
@@ -150,10 +150,10 @@ def test_remove_inline_citations_citet() -> None:
 def test_remove_inline_citations_preserves_when_disabled() -> None:
     """Test that citations are preserved as plain text when removal is disabled."""
     html = (
-        '<p>We study '
+        "<p>We study "
         '<cite class="ltx_cite ltx_citemacro_citep">'
         '(Anthropic, <a class="ltx_ref" href="#bib.bib4">2024</a>)'
-        '</cite> things.</p>'
+        "</cite> things.</p>"
     )
 
     result = convert_fragment_to_markdown(html, remove_inline_citations=False)
@@ -163,7 +163,7 @@ def test_remove_inline_citations_preserves_when_disabled() -> None:
 
 def test_remove_inline_citations_ignores_non_ltx_cite() -> None:
     """Test that plain cite tags without ltx_cite class are not removed."""
-    html = '<p>See <cite>A Book Title</cite> for details.</p>'
+    html = "<p>See <cite>A Book Title</cite> for details.</p>"
 
     result = convert_fragment_to_markdown(html, remove_inline_citations=True)
     assert "A Book Title" in result
@@ -178,7 +178,9 @@ def test_resolve_relative_image_urls() -> None:
     </figure>
     """
 
-    result = convert_fragment_to_markdown(html, base_url="https://arxiv.org/html/2501.11120v1")
+    result = convert_fragment_to_markdown(
+        html, base_url="https://arxiv.org/html/2501.11120v1"
+    )
     assert "https://arxiv.org/html/2501.11120v1/extracted/figures/fig1.png" in result
     assert "Figure 1: System overview" in result
 
@@ -192,7 +194,9 @@ def test_absolute_image_urls_unchanged() -> None:
     </figure>
     """
 
-    result = convert_fragment_to_markdown(html, base_url="https://ar5iv.labs.arxiv.org/html/2501.11120v1")
+    result = convert_fragment_to_markdown(
+        html, base_url="https://ar5iv.labs.arxiv.org/html/2501.11120v1"
+    )
     assert "https://arxiv.org/html/2501.11120v1/assets/img.png" in result
 
 

@@ -30,8 +30,12 @@ class IngestRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     input_text: str = Field(..., description="arXiv URL or ID to ingest")
-    remove_refs: bool = Field(default=False, description="Remove references from output")
-    remove_toc: bool = Field(default=False, description="Remove table of contents from output")
+    remove_refs: bool = Field(
+        default=False, description="Remove references from output"
+    )
+    remove_toc: bool = Field(
+        default=False, description="Remove table of contents from output"
+    )
     remove_inline_citations: bool = Field(
         default=False,
         description="Remove inline citations and internal paper links from output",
@@ -44,7 +48,9 @@ class IngestRequest(BaseModel):
         default=SectionFilterMode.EXCLUDE,
         description="Section filtering mode",
     )
-    sections: list[str] = Field(default_factory=list, description="Section titles to filter")
+    sections: list[str] = Field(
+        default_factory=list, description="Section titles to filter"
+    )
 
     # Deprecated fields for gitingest compatibility
     max_file_size: int | None = Field(default=None, ge=1, le=MAX_FILE_SIZE_KB)
@@ -83,13 +89,19 @@ class IngestSuccessResponse(BaseModel):
     arxiv_id: str | None = Field(default=None, description="arXiv identifier")
     version: str | None = Field(default=None, description="arXiv version")
     title: str | None = Field(default=None, description="Paper title")
-    source_url: str | None = Field(default=None, description="Canonical arXiv abstract URL")
+    source_url: str | None = Field(
+        default=None, description="Canonical arXiv abstract URL"
+    )
     summary: str = Field(..., description="Ingestion summary with token estimates")
     digest_url: str = Field(..., description="URL to download the full digest content")
     tree: str = Field(..., description="Section tree structure")
-    sections_tree: str | None = Field(default=None, description="Section tree (alias for tree)")
+    sections_tree: str | None = Field(
+        default=None, description="Section tree (alias for tree)"
+    )
     content: str = Field(..., description="Processed markdown content")
-    frontmatter: str | None = Field(default=None, description="YAML frontmatter block with paper metadata")
+    frontmatter: str | None = Field(
+        default=None, description="YAML frontmatter block with paper metadata"
+    )
     remove_refs: bool | None = Field(default=None)
     remove_toc: bool | None = Field(default=None)
     section_filter_mode: str | None = Field(default=None)
@@ -117,7 +129,9 @@ class MarkdownJsonResponse(BaseModel):
 
     arxiv_id: str | None = Field(default=None, description="arXiv identifier")
     title: str | None = Field(default=None, description="Paper title")
-    source_url: str | None = Field(default=None, description="Canonical arXiv abstract URL")
+    source_url: str | None = Field(
+        default=None, description="Canonical arXiv abstract URL"
+    )
     content: str = Field(..., description="Processed markdown content")
 
 

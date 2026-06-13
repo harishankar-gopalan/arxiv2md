@@ -34,12 +34,22 @@ async def ingest_paper(
         If True, completely remove inline citation links from the output.
         If False (default), citation URLs are stripped but text is kept.
     """
-    html, source_url = await fetch_arxiv_html(html_url, arxiv_id=arxiv_id, version=version, use_cache=True, ar5iv_url=ar5iv_url)
+    html, source_url = await fetch_arxiv_html(
+        html_url,
+        arxiv_id=arxiv_id,
+        version=version,
+        use_cache=True,
+        ar5iv_url=ar5iv_url,
+    )
     parsed = parse_arxiv_html(html)
 
-    filtered_sections = filter_sections(parsed.sections, mode=section_filter_mode, selected=sections)
+    filtered_sections = filter_sections(
+        parsed.sections, mode=section_filter_mode, selected=sections
+    )
     if remove_refs:
-        filtered_sections = filter_sections(filtered_sections, mode="exclude", selected=_REFERENCE_TITLES)
+        filtered_sections = filter_sections(
+            filtered_sections, mode="exclude", selected=_REFERENCE_TITLES
+        )
 
     # Check if abstract should be included based on section filter
     selected_lower = [s.lower() for s in sections]
@@ -49,7 +59,11 @@ async def ingest_paper(
         include_abstract = not sections or _ABSTRACT_TITLE in selected_lower
 
     for section in filtered_sections:
-        _populate_section_markdown(section, remove_inline_citations=remove_inline_citations, base_url=source_url)
+        _populate_section_markdown(
+            section,
+            remove_inline_citations=remove_inline_citations,
+            base_url=source_url,
+        )
 
     result = format_paper(
         arxiv_id=arxiv_id,
@@ -73,8 +87,16 @@ async def ingest_paper(
     return result, metadata
 
 
-def _populate_section_markdown(section, *, remove_inline_citations: bool = False, base_url: str | None = None) -> None:
+def _populate_section_markdown(
+    section, *, remove_inline_citations: bool = False, base_url: str | None = None
+) -> None:
     if section.html:
-        section.markdown, section.footnotes = convert_fragment_to_markdown(section.html, remove_inline_citations=remove_inline_citations, base_url=base_url)
+        section.markdown, section.footnotes = convert_fragment_to_markdown(
+            section.html,
+            remove_inline_citations=remove_inline_citations,
+            base_url=base_url,
+        )
     for child in section.children:
-        _populate_section_markdown(child, remove_inline_citations=remove_inline_citations, base_url=base_url)
+        _populate_section_markdown(
+            child, remove_inline_citations=remove_inline_citations, base_url=base_url
+        )

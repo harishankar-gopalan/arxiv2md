@@ -87,7 +87,9 @@ def _format_output(
     return "\n\n".join(parts).strip()
 
 
-def _collect_sections(sections_csv: str | None, section_list: list[str] | None) -> list[str]:
+def _collect_sections(
+    sections_csv: str | None, section_list: list[str] | None
+) -> list[str]:
     values: list[str] = []
     if sections_csv:
         values.extend(sections_csv.split(","))

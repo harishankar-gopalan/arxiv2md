@@ -9,18 +9,24 @@ from typing import Iterable
 from arxiv2md.markdown import convert_fragment_to_markdown
 from arxiv2md.schemas import SectionNode
 
-
 try:
     from bs4 import BeautifulSoup
     from bs4.element import NavigableString, Tag
 except ImportError as exc:  # pragma: no cover - runtime dependency check
-    raise RuntimeError("BeautifulSoup4 is required for HTML parsing (pip install beautifulsoup4).") from exc
+    raise RuntimeError(
+        "BeautifulSoup4 is required for HTML parsing (pip install beautifulsoup4)."
+    ) from exc
 
 
 _HEADING_RE = re.compile(r"^h[1-6]$")
 _EMAIL_RE = re.compile(r"^[\w.+-]+@[\w.-]+\.\w+$")
 # Keywords that indicate footnotes or contribution statements (case-insensitive check)
-_SKIP_KEYWORDS = {"footnotemark:", "equal contribution", "work performed", "listing order"}
+_SKIP_KEYWORDS = {
+    "footnotemark:",
+    "equal contribution",
+    "work performed",
+    "listing order",
+}
 _MAX_AUTHOR_PART_LENGTH = 80  # Filter out long contribution statements
 
 
@@ -45,7 +51,13 @@ def parse_arxiv_html(html: str) -> ParsedArxivHtml:
     abstract, abstract_footnote = _extract_abstract(soup)
     sections = _extract_sections(document_root)
 
-    return ParsedArxivHtml(title=title, authors=authors, abstract=abstract, sections=sections, abstract_footnotes=abstract_footnote)
+    return ParsedArxivHtml(
+        title=title,
+        authors=authors,
+        abstract=abstract,
+        sections=sections,
+        abstract_footnotes=abstract_footnote,
+    )
 
 
 def _find_document_root(soup: BeautifulSoup) -> Tag:
@@ -64,10 +76,14 @@ def _extract_title(soup: BeautifulSoup) -> str | None:
     title_tag = soup.find("h1", class_=re.compile(r"ltx_title"))
     if title_tag:
         # handle possibility of bold/italics/latex in title
-        return convert_fragment_to_markdown(html=str(title_tag))[0].strip() # title_tag.get_text(" ", strip=True)
+        return convert_fragment_to_markdown(html=str(title_tag))[
+            0
+        ].strip()  # title_tag.get_text(" ", strip=True)
     if soup.title:
         # handle possibility of bold/italics/latex in title
-        return convert_fragment_to_markdown(html=str(soup.title))[0].strip() # soup.title.get_text(" ", strip=True)
+        return convert_fragment_to_markdown(html=str(soup.title))[
+            0
+        ].strip()  # soup.title.get_text(" ", strip=True)
     return None
 
 
@@ -85,7 +101,9 @@ def _extract_authors(soup: BeautifulSoup) -> list[str]:
         and "ltx_font_bold" in tag.get("class", [])
     )
     if not author_nodes:
-        author_nodes = authors_container.find_all(class_=re.compile(r"ltx_author|ltx_personname"))
+        author_nodes = authors_container.find_all(
+            class_=re.compile(r"ltx_author|ltx_personname")
+        )
 
     authors: list[str] = []
     for node in author_nodes:
@@ -140,19 +158,21 @@ def _extract_abstract(soup: BeautifulSoup) -> str | None:
     abstract = soup.find(class_=re.compile(r"ltx_abstract"))
     if not abstract:
         return None
-    
-    # Section header for abstract is already added in 
+
+    # Section header for abstract is already added in
     # output_formatter._render_content, so omit extract 'Abstract' titling
     abstract_title = abstract.find(class_="ltx_title_abstract")
     if abstract_title:
         abstract_title.decompose()
 
     abs_cont, abs_footnote = convert_fragment_to_markdown(html=str(abstract))
-    return  abs_cont.strip(), abs_footnote.strip() # abstract.get_text(" ", strip=True)
+    return abs_cont.strip(), abs_footnote.strip()  # abstract.get_text(" ", strip=True)
 
 
 def _extract_sections(root: Tag) -> list[SectionNode]:
-    headings = [heading for heading in _iter_headings(root) if not _is_title_heading(heading)]
+    headings = [
+        heading for heading in _iter_headings(root) if not _is_title_heading(heading)
+    ]
     sections: list[SectionNode] = []
     stack: list[SectionNode] = []
 
@@ -211,7 +231,9 @@ def _collect_section_html(heading: Tag) -> str | None:
         if isinstance(child, Tag) and child.name == "section":
             continue
         if isinstance(child, Tag) and any(
-            cls.startswith("ltx_section") or cls.startswith("ltx_subsection") or cls.startswith("ltx_subsubsection")
+            cls.startswith("ltx_section")
+            or cls.startswith("ltx_subsection")
+            or cls.startswith("ltx_subsubsection")
             for cls in child.get("class", [])
         ):
             continue

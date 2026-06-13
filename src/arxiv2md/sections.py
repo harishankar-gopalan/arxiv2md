@@ -22,7 +22,9 @@ def filter_sections(
     selected: Iterable[str] | None = None,
 ) -> list[SectionNode]:
     """Filter sections by title using include or exclude mode."""
-    selected_titles = {normalize_section_title(title) for title in (selected or []) if title.strip()}
+    selected_titles = {
+        normalize_section_title(title) for title in (selected or []) if title.strip()
+    }
     if not selected_titles:
         return sections
 

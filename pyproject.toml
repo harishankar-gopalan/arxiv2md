@@ -23,9 +23,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "pre-commit>=4.3.0",
     "pytest",
     "pytest-asyncio",
     "pytest-mock",
+    "ruff>=0.15.17",
 ]
 server = [
     "fastapi[standard]>=0.109.1",
@@ -59,8 +61,20 @@ python_files = "test_*.py"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint]
+select = ["I"]
+
 [dependency-groups]
 dev = [
     "build>=1.4.0",
+    "pre-commit>=4.3.0",
+    "ruff>=0.15.17",
     "twine>=6.2.0",
 ]

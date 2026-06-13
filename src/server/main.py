@@ -6,17 +6,22 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+# Import logging configuration first to intercept all logging
+from arxiv2md.cache import cleanup_cache
+from arxiv2md.utils.logging_config import get_logger
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-# Import logging configuration first to intercept all logging
-from arxiv2md.cache import cleanup_cache
-from arxiv2md.utils.logging_config import get_logger
 from server.routers import dynamic, index, ingest, markdown_api
 
 # Load environment variables from .env file
@@ -48,7 +53,6 @@ static_dir = Path(__file__).parent.parent / "static"
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
-
 @app.get("/health")
 async def health_check() -> dict[str, str]:
     """Health check endpoint to verify that the server is running.
@@ -74,7 +78,9 @@ async def head_root() -> HTMLResponse:
     - **HTMLResponse**: An empty HTML response with appropriate headers
 
     """
-    return HTMLResponse(content=None, headers={"content-type": "text/html; charset=utf-8"})
+    return HTMLResponse(
+        content=None, headers={"content-type": "text/html; charset=utf-8"}
+    )
 
 
 @app.get("/robots.txt", include_in_schema=False)
@@ -131,8 +137,16 @@ def openapi_json_get() -> JSONResponse:
     return JSONResponse(app.openapi())
 
 
-@app.api_route("/api", methods=["POST", "PUT", "DELETE", "OPTIONS", "HEAD"], include_in_schema=False)
-@app.api_route("/api/", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"], include_in_schema=False)
+@app.api_route(
+    "/api",
+    methods=["POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
+    include_in_schema=False,
+)
+@app.api_route(
+    "/api/",
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
+    include_in_schema=False,
+)
 def openapi_json() -> JSONResponse:
     """Return the OpenAPI schema for various HTTP methods.
 
