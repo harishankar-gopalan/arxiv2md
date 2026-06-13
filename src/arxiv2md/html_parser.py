@@ -31,6 +31,7 @@ class ParsedArxivHtml:
     title: str | None
     authors: list[str]
     abstract: str | None
+    abstract_footnotes: str | None
     sections: list[SectionNode]
 
 
@@ -41,10 +42,10 @@ def parse_arxiv_html(html: str) -> ParsedArxivHtml:
 
     title = _extract_title(soup)
     authors = _extract_authors(soup)
-    abstract = _extract_abstract(soup)
+    abstract, abstract_footnote = _extract_abstract(soup)
     sections = _extract_sections(document_root)
 
-    return ParsedArxivHtml(title=title, authors=authors, abstract=abstract, sections=sections)
+    return ParsedArxivHtml(title=title, authors=authors, abstract=abstract, sections=sections, abstract_footnotes=abstract_footnote)
 
 
 def _find_document_root(soup: BeautifulSoup) -> Tag:
@@ -63,10 +64,10 @@ def _extract_title(soup: BeautifulSoup) -> str | None:
     title_tag = soup.find("h1", class_=re.compile(r"ltx_title"))
     if title_tag:
         # handle possibility of bold/italics/latex in title
-        return convert_fragment_to_markdown(html=str(title_tag)).strip() # title_tag.get_text(" ", strip=True)
+        return convert_fragment_to_markdown(html=str(title_tag))[0].strip() # title_tag.get_text(" ", strip=True)
     if soup.title:
         # handle possibility of bold/italics/latex in title
-        return convert_fragment_to_markdown(html=str(soup.title)).strip() # soup.title.get_text(" ", strip=True)
+        return convert_fragment_to_markdown(html=str(soup.title))[0].strip() # soup.title.get_text(" ", strip=True)
     return None
 
 
@@ -145,7 +146,9 @@ def _extract_abstract(soup: BeautifulSoup) -> str | None:
     abstract_title = abstract.find(class_="ltx_title_abstract")
     if abstract_title:
         abstract_title.decompose()
-    return convert_fragment_to_markdown(html=str(abstract)).strip() # abstract.get_text(" ", strip=True)
+
+    abs_cont, abs_footnote = convert_fragment_to_markdown(html=str(abstract))
+    return  abs_cont.strip(), abs_footnote.strip() # abstract.get_text(" ", strip=True)
 
 
 def _extract_sections(root: Tag) -> list[SectionNode]:

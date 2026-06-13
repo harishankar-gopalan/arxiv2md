@@ -13,4 +13,5 @@ class SectionNode(BaseModel):
     anchor: str | None = None
     html: str | None = None
     markdown: str | None = None
+    footnotes: str | None = None
     children: list["SectionNode"] = Field(default_factory=list)

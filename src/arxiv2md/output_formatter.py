@@ -22,6 +22,7 @@ def format_paper(
     title: str | None,
     authors: list[str],
     abstract: str | None,
+    abstract_footnote: str | None,
     sections: list[SectionNode],
     include_toc: bool,
     include_abstract_in_tree: bool = True,
@@ -33,7 +34,7 @@ def format_paper(
         tree_lines.append("Abstract")
     tree_lines.append(_create_sections_tree(sections))
     tree = "\n".join(tree_lines)
-    content = _render_content(abstract=abstract, sections=sections, include_toc=include_toc)
+    content = _render_content(abstract=abstract, abstract_footnote=abstract_footnote, sections=sections, include_toc=include_toc)
 
     section_count = count_sections(sections)
     token_estimate = _format_token_count(tree + "\n" + content)
@@ -109,10 +110,12 @@ def count_sections(sections: Iterable[SectionNode]) -> int:
 def _render_content(
     *,
     abstract: str | None,
+    abstract_footnote: str | None,
     sections: list[SectionNode],
     include_toc: bool,
 ) -> str:
     blocks: list[str] = []
+    footnotes: list[str] = [f"{abstract_footnote}"] if abstract_footnote else []
     if include_toc:
         toc = _render_toc(sections)
         if toc:
@@ -124,9 +127,18 @@ def _render_content(
 
     for section in sections:
         blocks.extend(_render_section(section))
+        footnotes.extend(_render_footnotes(section))
 
-    return "\n\n".join(block for block in blocks if block).strip()
+    return "\n\n".join(block for block in blocks if block).strip() + (("\n\n\n" + "\n".join(footnote for footnote in footnotes)) if footnotes else "")
 
+
+def _render_footnotes(section: SectionNode) -> str:
+    footnotes: list[str] = []
+    if section.footnotes:
+        footnotes.append(section.footnotes)
+    for child in section.children:
+        footnotes.extend(_render_footnotes(child))
+    return footnotes
 
 def _render_section(section: SectionNode) -> list[str]:
     blocks: list[str] = []

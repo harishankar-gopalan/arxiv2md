@@ -102,8 +102,7 @@ _FINAL_REPLACE_PATTERNS = {
     r"(?<!\\)\*{3}" : "** *",
 }
 
-
-def convert_html_to_markdown(html: str, *, remove_refs: bool = False, remove_toc: bool = False) -> str:
+def convert_html_to_markdown(html: str, *, remove_refs: bool = False, remove_toc: bool = False,) -> str:
     """Convert arXiv HTML into Markdown."""
     soup = BeautifulSoup(html, "html.parser")
     toc_markdown = None
@@ -134,21 +133,25 @@ def convert_html_to_markdown(html: str, *, remove_refs: bool = False, remove_toc
             blocks.append(f"Authors: {authors_text}")
     if toc_markdown:
         blocks.append("## Contents\n" + toc_markdown)
+    
+    abstract_footnotes = []
     if abstract_tag:
-        blocks.extend(_serialize_abstract(abstract_tag))
+        abstract_blocks, abstract_footnotes = _serialize_abstract(abstract_tag)
+        blocks.extend(abstract_blocks)
 
     for tag in (title_tag, authors_tag, abstract_tag):
         if tag:
             tag.decompose()
 
-    blocks.extend(_serialize_children(root))
+    footnotes = []
+    blocks.extend(_serialize_children(root, footnotes=footnotes))
 
     return _check_and_handle_latex_prefix_suffix(
         "\n\n".join(block for block in blocks if block).strip()
-    )
+    ), "\n".join(footnote for footnote in (footnotes + abstract_footnotes)).strip()
 
 
-def convert_fragment_to_markdown(html: str, *, remove_inline_citations: bool = False, base_url: str | None = None) -> str:
+def convert_fragment_to_markdown(html: str, *, remove_inline_citations: bool = False, base_url: str | None = None,) -> tuple[str, str]:
     """Convert an HTML fragment into Markdown without title/author/abstract handling.
 
     Parameters
@@ -169,10 +172,11 @@ def convert_fragment_to_markdown(html: str, *, remove_inline_citations: bool = F
     fix_tabular_tables(soup)
     if base_url:
         _resolve_image_urls(soup, base_url)
-    blocks = _serialize_children(soup, remove_inline_citations=remove_inline_citations)
+    footnotes = []
+    blocks = _serialize_children(soup, remove_inline_citations=remove_inline_citations, footnotes=footnotes)
     return _check_and_handle_latex_prefix_suffix(
         "\n\n".join(block for block in blocks if block).strip()
-    )
+    ), "\n".join(footnote for footnote in footnotes).strip()
 
 
 def _find_document_root(soup: BeautifulSoup) -> Tag:
@@ -197,7 +201,6 @@ def _strip_unwanted_elements(soup: BeautifulSoup) -> None:
 def _format_content(cont: str, indent: int = 2) -> str:
     try:
         cont = json.dumps(json.loads(cont), indent=indent)
-        print(cont)
     except json.JSONDecodeError:
         # ignore as there could be some ltx_listing content
         # which is not actually json content in which case,
@@ -374,7 +377,7 @@ def _remove_all_attributes(tag: Tag) -> None:
     tag.attrs = {k: v for k, v in tag.attrs.items() if k in keep_attr}
 
 
-def _serialize_children(container: Tag, *, remove_inline_citations: bool = False) -> list[str]:
+def _serialize_children(container: Tag, *, remove_inline_citations: bool = False, footnotes: list[str] = []) -> list[str]:
     blocks: list[str] = []
     for child in container.children:
         if isinstance(child, NavigableString):
@@ -410,14 +413,14 @@ def _serialize_children(container: Tag, *, remove_inline_citations: bool = False
             # <span> tags whereas the general behavior is presence of <p> tags
             # which is what is properly handled by default
             # these checks handle specific edge cases came across during testing
-            blocks.extend([_serialize_paragraph(child, remove_inline_citations=remove_inline_citations)])
-        blocks.extend(_serialize_block(child, remove_inline_citations=remove_inline_citations))
+            blocks.extend([_serialize_paragraph(child, remove_inline_citations=remove_inline_citations, footnotes=footnotes)])
+        blocks.extend(_serialize_block(child, remove_inline_citations=remove_inline_citations, footnotes=footnotes))
     return blocks
 
 
-def _serialize_block(tag: Tag, *, remove_inline_citations: bool = False) -> list[str]:
+def _serialize_block(tag: Tag, *, remove_inline_citations: bool = False, footnotes: list[str] = []) -> list[str]:
     if tag.name in {"section", "article", "div", "span"}:
-        return _serialize_children(tag, remove_inline_citations=remove_inline_citations)
+        return _serialize_children(tag, remove_inline_citations=remove_inline_citations, footnotes=footnotes)
 
     if tag.name in {"h1", "h2", "h3", "h4", "h5", "h6"}:
         level = int(tag.name[1])
@@ -430,23 +433,23 @@ def _serialize_block(tag: Tag, *, remove_inline_citations: bool = False) -> list
         return [tag.string]
 
     if tag.name == "p":
-        paragraph = _serialize_paragraph(tag, remove_inline_citations=remove_inline_citations)
+        paragraph = _serialize_paragraph(tag, remove_inline_citations=remove_inline_citations, footnotes=footnotes)
         return [paragraph] if paragraph else []
 
     if tag.name in {"ul", "ol"}:
-        lines = _serialize_list(tag, remove_inline_citations=remove_inline_citations)
+        lines = _serialize_list(tag, remove_inline_citations=remove_inline_citations, footnotes=footnotes)
         return ["\n".join(lines)] if lines else []
 
     if tag.name == "figure":
-        figure = _serialize_figure(tag, remove_inline_citations=remove_inline_citations)
+        figure = _serialize_figure(tag, remove_inline_citations=remove_inline_citations, footnotes=footnotes)
         return [figure] if figure else []
 
     if tag.name == "table":
-        table_md = _serialize_table(tag, remove_inline_citations=remove_inline_citations)
+        table_md = _serialize_table(tag, remove_inline_citations=remove_inline_citations, footnotes=footnotes)
         return [table_md] if table_md else []
 
     if tag.name == "blockquote":
-        content = _normalize_text(_serialize_inline(tag, remove_inline_citations=remove_inline_citations))
+        content = _normalize_text(_serialize_inline(tag, remove_inline_citations=remove_inline_citations, footnotes=footnotes))
         if not content:
             return []
         return ["> " + content]
@@ -454,27 +457,28 @@ def _serialize_block(tag: Tag, *, remove_inline_citations: bool = False) -> list
     if tag.name == "br":
         return []
 
-    return _serialize_children(tag, remove_inline_citations=remove_inline_citations)
+    return _serialize_children(tag, remove_inline_citations=remove_inline_citations, footnotes=footnotes)
 
 
-def _serialize_abstract(tag: Tag) -> list[str]:
+def _serialize_abstract(tag: Tag) -> tuple[list[str], list[str]]:
     blocks = ["## Abstract"]
     paragraphs = tag.find_all("p")
     if not paragraphs:
         content = _normalize_text(tag.get_text(" ", strip=True))
         if content:
             blocks.append(content)
-        return blocks
+        return blocks, []
 
+    footnotes = []
     for paragraph in paragraphs:
-        text = _serialize_paragraph(paragraph)
+        text = _serialize_paragraph(paragraph, footnotes=footnotes)
         if text:
             blocks.append(text)
-    return blocks
+    return blocks, footnotes
 
 
-def _serialize_paragraph(tag: Tag, *, remove_inline_citations: bool = False) -> str:
-    content = _serialize_inline(tag, remove_inline_citations=remove_inline_citations)
+def _serialize_paragraph(tag: Tag, *, remove_inline_citations: bool = False, footnotes: list[str] = []) -> str:
+    content = _serialize_inline(tag, remove_inline_citations=remove_inline_citations, footnotes=footnotes)
     content = _cleanup_inline_text(content)
     return content
 
@@ -503,7 +507,7 @@ def _is_internal_paper_link(href: str | None) -> bool:
     return "arxiv.org/html/" in href and "#" in href and "#bib" not in href
 
 
-def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: bool = False, indent: int = 0, nested_table: bool = False) -> str:
+def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: bool = False, indent: int = 0, nested_table: bool = False, footnotes: list[str] = []) -> str:
     if isinstance(node, NavigableString):
         return _normalize_pure_text_content(str(node))
 
@@ -523,17 +527,17 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
         return ""
 
     if node.name in {"em", "i"} or "ltx_font_italic" in node.get("class", []):
-        return f" *{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()}* "
+        return f" *{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, footnotes=footnotes).strip()}* "
 
     if "ltx_font_bold" in node.get("class", []) and "ltx_font_typewriter" in node.get("class", []):
-        code_block = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).replace('\\*', '*')
+        code_block = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, footnotes=footnotes).replace('\\*', '*')
         return f" **`{_format_content(code_block)}`** "
 
     if node.name in {"strong", "b"} or "ltx_font_bold" in node.get("class", []):
-        return f"**{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()}** "
+        return f"**{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, footnotes=footnotes).strip()}** "
     
     if node.name == "a":
-        text = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()
+        text = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, footnotes=footnotes).strip()
         href = node.get("href")
         # Handle citation links specially
         if _is_citation_link(href):
@@ -549,8 +553,9 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
         return text
 
     if node.name == "span" and "ltx_role_footnote" in node.get("class", []):
-        text = _normalize_pure_text_content(node.get_text(" ", strip=True))
-        return f"<sup>{text}</sup>"
+        text = _normalize_pure_text_content(node.select_one("sup").get_text(" ", strip=True))
+        footnotes.append(f"[^{text}]: {node.select_one('.ltx_note_outer').get_text(' ', strip=True)}")
+        return f"[^{text}]"
 
     if "ltx_note_mark" in node.get("class", []) or "ltx_note_content" in node.get("class", []):
         # footnote already handled in the previous check when the parent tag is
@@ -558,7 +563,7 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
         return ""
 
     if node.name == "sup":
-        text = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).strip()
+        text = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, footnotes=footnotes).strip()
         return f"^{text}" if text else ""
 
     if node.name == "cite":
@@ -567,37 +572,37 @@ def _serialize_inline(node: Tag | NavigableString, *, remove_inline_citations: b
         
         if remove_inline_citations and "ltx_cite" in node.get("class", []):
             return ""
-        return _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent)
+        return _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, footnotes=footnotes).strip()
 
     if node.name == "math":
         text = node.get_text(" ", strip=True)
         return f"${text}$" if text else ""
 
     if "ltx_note" in node.get("class", []):
-        text = _normalize_text(_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent))
+        text = _normalize_text(_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, footnotes=footnotes))
         return f"({text})" if text else ""
     
     if "ltx_tag_item" in node.get("class", []):
         return ""
     
     if node.name in {"code"} or "ltx_font_typewriter" in node.get("class", []):
-        code_block = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent).replace('\\*', '*')
+        code_block = _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, footnotes=footnotes).replace('\\*', '*')
         code_block = _format_content(code_block)
         return f"`{code_block}`"
     
     if node.name in {"ul", "ol"}:
-        lines = _serialize_list(node, remove_inline_citations=remove_inline_citations, indent=indent)
+        lines = _serialize_list(node, remove_inline_citations=remove_inline_citations, indent=indent, footnotes=footnotes)
         return "\n".join(lines) if lines else ""
 
     if node.name == "table" and not nested_table:
-        table_md = _serialize_table(node, remove_inline_citations=remove_inline_citations)
+        table_md = _serialize_table(node, remove_inline_citations=remove_inline_citations, footnotes=footnotes)
         return table_md
 
-    return _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, nested_table=nested_table)
+    return _serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, nested_table=nested_table, footnotes=footnotes)
 
 
-def _serialize_children_inline(tag: Tag, *, remove_inline_citations: bool = False, indent: int = 0, nested_table: bool = False) -> str:
-    return "".join(_serialize_inline(child, remove_inline_citations=remove_inline_citations, indent=indent, nested_table=nested_table) for child in tag.children)
+def _serialize_children_inline(tag: Tag, *, remove_inline_citations: bool = False, indent: int = 0, nested_table: bool = False, footnotes: list[str] = []) -> str:
+    return "".join(_serialize_inline(child, remove_inline_citations=remove_inline_citations, indent=indent, nested_table=nested_table, footnotes=footnotes) for child in tag.children)
 
 
 def _cleanup_inline_text(text: str) -> str:
@@ -606,7 +611,7 @@ def _cleanup_inline_text(text: str) -> str:
     return text.strip()
 
 
-def _serialize_list(list_tag: Tag, indent: int = 0, *, remove_inline_citations: bool = False) -> list[str]:
+def _serialize_list(list_tag: Tag, indent: int = 0, *, remove_inline_citations: bool = False, footnotes: list[str] = []) -> list[str]:
     lines: list[str] = []
     for item in list_tag.find_all("li", recursive=False):
         item_text_parts: list[str] = []
@@ -615,12 +620,12 @@ def _serialize_list(list_tag: Tag, indent: int = 0, *, remove_inline_citations: 
             if isinstance(child, Tag) and child.name in {"ul", "ol"}:
                 nested_lists.append(child)
             else:
-                item_text_parts.append(_serialize_inline(child, remove_inline_citations=remove_inline_citations, indent=indent+1))
+                item_text_parts.append(_serialize_inline(child, remove_inline_citations=remove_inline_citations, indent=indent+1, footnotes=footnotes))
         item_text = _cleanup_inline_text("".join(item_text_parts)) if indent else "".join(item_text_parts).strip()
         prefix = "  " * indent + "- "
         lines.append(prefix + item_text if item_text else prefix.rstrip())
         for nested in nested_lists:
-            lines.extend(_serialize_list(nested, indent + 1, remove_inline_citations=remove_inline_citations))
+            lines.extend(_serialize_list(nested, indent + 1, remove_inline_citations=remove_inline_citations, footnotes=footnotes))
     return lines
 
 
@@ -628,7 +633,7 @@ def _serialize_toc(toc_nav: Tag) -> str:
     list_tag = toc_nav.find("ol")
     if not list_tag:
         return ""
-    lines = _serialize_list(list_tag)
+    lines = _serialize_list(list_tag, footnotes="")
     return "\n".join(lines)
 
 
@@ -640,7 +645,7 @@ def _update_rowspan_info(rowspan_info: dict, values: list[str], row_idx: int) ->
                     values.insert(col_idx, "")
     return values
 
-def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> str:
+def _serialize_table(table: Tag, *, remove_inline_citations: bool = False, footnotes: list[str] = []) -> str:
     classes = " ".join(table.get("class", []))
     if _EQUATION_TABLE_RE.search(classes):
         eqn_text = _normalize_text(table.get_text(" ", strip=True))
@@ -671,7 +676,7 @@ def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> st
 
                         rowspan_info[col_idx] = span_info 
 
-                    cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations, nested_table=True)).replace("\n", "<br>")
+                    cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations, nested_table=True, footnotes=footnotes)).replace("\n", "<br>")
                     values.append(cell_text)
                 
                 values = _update_rowspan_info(rowspan_info, values, row_idx)
@@ -692,7 +697,7 @@ def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> st
 
                     rowspan_info[col_idx] = span_info
                 
-                cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations, nested_table=True)).replace("\n", "<br>")
+                cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations, nested_table=True, footnotes=footnotes)).replace("\n", "<br>")
                 values.append(cell_text)
             
             values = _update_rowspan_info(rowspan_info, values, row_idx)
@@ -712,7 +717,7 @@ def _serialize_table(table: Tag, *, remove_inline_citations: bool = False) -> st
         lines.append("| " + " | ".join(row) + " |")
     return "\n".join(lines)
 
-def _serialize_span_table(table: Tag, *, remove_inline_citations: bool = False) -> str:
+def _serialize_span_table(table: Tag, *, remove_inline_citations: bool = False, footnotes: list[str] = []) -> str:
     classes = " ".join(table.get("class", []))
     if _EQUATION_TABLE_RE.search(classes):
         eqn_text = _normalize_text(table.get_text(" ", strip=True))
@@ -743,7 +748,7 @@ def _serialize_span_table(table: Tag, *, remove_inline_citations: bool = False) 
 
                         rowspan_info[col_idx] = span_info 
 
-                    cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations, nested_table=True)).replace("\n", "<br>")
+                    cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations, nested_table=True, footnotes=footnotes)).replace("\n", "<br>")
                     values.append(cell_text)
                 
                 values = _update_rowspan_info(rowspan_info, values, row_idx)
@@ -764,7 +769,7 @@ def _serialize_span_table(table: Tag, *, remove_inline_citations: bool = False) 
 
                     rowspan_info[col_idx] = span_info
                 
-                cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations, nested_table=True)).replace("\n", "<br>")
+                cell_text = _cleanup_inline_text(_serialize_inline(cell, remove_inline_citations=remove_inline_citations, nested_table=True, footnotes=footnotes)).replace("\n", "<br>")
                 values.append(cell_text)
             
             values = _update_rowspan_info(rowspan_info, values, row_idx)
@@ -784,13 +789,13 @@ def _serialize_span_table(table: Tag, *, remove_inline_citations: bool = False) 
         lines.append("| " + " | ".join(row) + " |")
     return "\n".join(lines)
 
-def _serialize_figure(figure: Tag, *, remove_inline_citations: bool = False) -> str:
+def _serialize_figure(figure: Tag, *, remove_inline_citations: bool = False, footnotes: list[str] = []) -> str:
     # Check if this is a table figure (ltx_table class)
     figure_classes = " ".join(figure.get("class", []))
     is_table_figure = "ltx_table" in figure_classes
 
     caption_tag = figure.find("figcaption")
-    caption = _normalize_text(_serialize_inline(caption_tag, remove_inline_citations=remove_inline_citations)) if caption_tag else ""
+    caption = _normalize_text(_serialize_inline(caption_tag, remove_inline_citations=remove_inline_citations, footnotes=footnotes)) if caption_tag else ""
 
     lines = []
 
@@ -799,7 +804,7 @@ def _serialize_figure(figure: Tag, *, remove_inline_citations: bool = False) -> 
         # Note: fix_tabular_tables strips attributes, so search for any table element
         table = figure.find("table")
         if table:
-            table_md = _serialize_table(table, remove_inline_citations=remove_inline_citations)
+            table_md = _serialize_table(table, remove_inline_citations=remove_inline_citations, footnotes=footnotes)
             if caption:
                 lines.append(f"**{caption}**")
             if table_md:
@@ -807,7 +812,7 @@ def _serialize_figure(figure: Tag, *, remove_inline_citations: bool = False) -> 
         elif caption:
             span_table = figure.find("span", attrs={"class": "ltx_tabular"})
             if span_table:
-                span_table_md = _serialize_span_table(span_table, remove_inline_citations=remove_inline_citations)
+                span_table_md = _serialize_span_table(span_table, remove_inline_citations=remove_inline_citations, footnotes=footnotes)
                 if caption:
                     lines.append(f"**{caption}**")
                 if span_table_md:

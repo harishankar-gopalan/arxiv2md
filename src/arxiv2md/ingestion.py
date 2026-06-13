@@ -57,6 +57,7 @@ async def ingest_paper(
         title=parsed.title,
         authors=parsed.authors,
         abstract=parsed.abstract if include_abstract else None,
+        abstract_footnote=parsed.abstract_footnotes if include_abstract else None,
         sections=filtered_sections,
         include_toc=not remove_toc,
         include_abstract_in_tree=parsed.abstract is not None,
@@ -74,6 +75,6 @@ async def ingest_paper(
 
 def _populate_section_markdown(section, *, remove_inline_citations: bool = False, base_url: str | None = None) -> None:
     if section.html:
-        section.markdown = convert_fragment_to_markdown(section.html, remove_inline_citations=remove_inline_citations, base_url=base_url)
+        section.markdown, section.footnotes = convert_fragment_to_markdown(section.html, remove_inline_citations=remove_inline_citations, base_url=base_url)
     for child in section.children:
         _populate_section_markdown(child, remove_inline_citations=remove_inline_citations, base_url=base_url)
