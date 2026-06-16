@@ -8,12 +8,12 @@
                     <span>arxiv2md</span>
                     <span class="text-gray-400">|</span>
                     <span>Convert arXiv papers to Markdown</span>
-                    <span class="text-gray-400">|</span>
+                </div>
+                {# Right - llms.txt and version #}
+                <div class="flex items-center space-x-2">
                     <a href="/llms.txt"
                        class="text-[#B31B1B] hover:text-[#8B1515] underline">llms.txt</a>
-                </div>
-                {# Right - Version #}
-                <div class="flex items-center">
+                    <span class="text-gray-400">|</span>
                     <span>Version:&nbsp;</span>
                     {% if version and version != "unknown" %}
                         <a href="{{ version_link }}"
