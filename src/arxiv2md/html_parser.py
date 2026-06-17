@@ -96,9 +96,11 @@ def _extract_authors(soup: BeautifulSoup) -> list[str]:
         return []
 
     author_nodes = authors_container.find_all(
-        lambda tag: tag.name == "span"
-        and "ltx_text" in tag.get("class", [])
-        and "ltx_font_bold" in tag.get("class", [])
+        lambda tag: (
+            tag.name == "span"
+            and "ltx_text" in tag.get("class", [])
+            and "ltx_font_bold" in tag.get("class", [])
+        )
     )
     if not author_nodes:
         author_nodes = authors_container.find_all(

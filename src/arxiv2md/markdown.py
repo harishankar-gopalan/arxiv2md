@@ -17,7 +17,15 @@ except ImportError as exc:  # pragma: no cover - runtime dependency check
 
 
 _EQUATION_TABLE_RE = re.compile(r"ltx_equationgroup|ltx_eqn_align|ltx_eqn_table")
-_EQUATION_NUMBER_RE = re.compile(r"(.*?)(\([0-9]+\))(?![^%]*%@math_en@%)([^\$]*)")
+
+# in the below regex, the part \([0-9A-Za-z]+\) is still not complete in the sense
+# does not cover all edge cases already known, for example if there is a special
+# character or LaTeX expression in the equation numbering like the below:
+# $$\quad\eta_{3}=\eta\cdot\frac{1}{d}, ( $\mu$ P)$$
+#
+# ideally the above should be changed to
+# $$\quad\eta_{3}=\eta\cdot\frac{1}{d}, ( $\mu$ P)$$
+_EQUATION_NUMBER_RE = re.compile(r"(.*?)(\([0-9A-Za-z]+\))(?![^%]*%@math_en@%)([^\$]*)")
 _LATEX_PREFIX = "%@math_st@%"
 _LATEX_SUFFIX = "%@math_en@%"
 _STRIP_LATEX_COMMANDS = [
@@ -56,7 +64,7 @@ def _substitute_slash_in_latex(m: re.Match) -> str:
     Returns
     -------
     str
-        Returns the replaced string
+        the replaced string
     """
     return m.group(1) + "\\ " + m.group(3)
 
@@ -78,7 +86,7 @@ def _substitute_0pt(m: re.Match) -> str:
     Returns
     -------
     str
-        Returns the replaced string
+        the replaced string
     """
     if m.group(1):
         return m.group(1).replace("0pt", "n")
@@ -92,6 +100,10 @@ _REPLACE_LATEX_COMMANDS = {
     # very specific case for the paper https://arxiv.org/html/2310.17813 where
     # HTML itself is wrong and gives the string 0pt instead of n
     r"\\rule\{[^}]*\}\{[^}]*\}|(0pt)": _substitute_0pt,
+    # replace styling rules like \big, \bigg, \Big, \Bigg appropriately, by replacing
+    # \big{(} to \big( i.e instead of character within parenthesis, it needs to be
+    # just after the styling rule for KaTeX
+    r"(\\[Bb]{1}i[g]{1,2}){(.)}": "\\1\\2",
 }
 
 _FINAL_REPLACE_PATTERNS = {
@@ -156,9 +168,13 @@ def convert_html_to_markdown(
     footnotes = []
     blocks.extend(_serialize_children(root, footnotes=footnotes))
 
-    return _check_and_handle_latex_prefix_suffix(
+    blk_cnt = _check_and_handle_latex_prefix_suffix(
         "\n\n".join(block for block in blocks if block).strip()
-    ), "\n".join(footnote for footnote in (footnotes + abstract_footnotes)).strip()
+    )
+    ftn_cnt = _check_and_handle_latex_prefix_suffix(
+        "\n".join(footnote for footnote in (footnotes + abstract_footnotes)).strip()
+    )
+    return blk_cnt, ftn_cnt
 
 
 def convert_fragment_to_markdown(
@@ -167,7 +183,8 @@ def convert_fragment_to_markdown(
     remove_inline_citations: bool = False,
     base_url: str | None = None,
 ) -> tuple[str, str]:
-    """Convert an HTML fragment into Markdown without title/author/abstract handling.
+    """
+    Convert an HTML fragment into Markdown without title/author/abstract handling.
 
     Parameters
     ----------
@@ -179,6 +196,12 @@ def convert_fragment_to_markdown(
     base_url : str | None
         Base URL to resolve relative image paths against. When provided,
         relative ``<img src>`` attributes are converted to absolute URLs.
+
+    Returns
+    -------
+    tuple[str, str]
+        first entry is the markdown string
+        second entry is the footnote string to be appended at the end
     """
     soup = BeautifulSoup(html, "html.parser")
     _strip_unwanted_elements(soup)
@@ -191,9 +214,14 @@ def convert_fragment_to_markdown(
     blocks = _serialize_children(
         soup, remove_inline_citations=remove_inline_citations, footnotes=footnotes
     )
-    return _check_and_handle_latex_prefix_suffix(
+
+    blk_cnt = _check_and_handle_latex_prefix_suffix(
         "\n\n".join(block for block in blocks if block).strip()
-    ), "\n".join(footnote for footnote in footnotes).strip()
+    )
+    ftn_cnt = _check_and_handle_latex_prefix_suffix(
+        "\n".join(footnote for footnote in footnotes).strip()
+    )
+    return blk_cnt, ftn_cnt
 
 
 def _find_document_root(soup: BeautifulSoup) -> Tag:
@@ -291,14 +319,8 @@ def _check_and_handle_latex_prefix_suffix(md: str) -> str:
 
 def _correct_multiline_latex_handling(eqn_text: str) -> str:
     eqn_modified = ""
-    matches = _EQUATION_NUMBER_RE.findall(eqn_text)
-    for match in matches:
-        eqn_text, mid, post = match
 
-        eqn_text = eqn_text.strip()
-        mid = mid.strip()
-        post = post.strip()
-
+    def _detect_head_tail(eqn_text: str) -> tuple[str, str]:
         head = "$$"
         tail = "$$"
         if eqn_text.startswith("$$"):
@@ -310,7 +332,25 @@ def _correct_multiline_latex_handling(eqn_text: str) -> str:
             tail = ""
         elif eqn_text.endswith("$"):
             tail = "$"
-        eqn_modified += f"{head}{eqn_text}{tail} {mid} {post}\n"
+        return head, tail
+
+    matches = _EQUATION_NUMBER_RE.findall(eqn_text)
+    for match in matches:
+        eqn_text, mid, post = match
+
+        eqn_text = eqn_text.strip().strip("$")
+        mid = mid.strip()
+        post = post.strip()
+
+        head, tail = _detect_head_tail(eqn_text)
+        eqn_modified += f"{head}{eqn_text} \\tag{{{mid.strip('()')}}}{tail} {post}\n"
+
+    if not eqn_modified:
+        # case where the equation exists but does not contain a numbering
+        # of the format (1), (2) etc.
+        head, tail = _detect_head_tail(eqn_text)
+        eqn_modified = f"{head}{eqn_text}{tail}"
+
     return eqn_modified
 
 
@@ -343,8 +383,34 @@ def _sanitize_latex_source(latex_source: str) -> str:
         return latex_source
 
 
+def escape_asterisks_outside_braces(s: str) -> str:
+    """
+    Escapes '*' with '\\*' only when it appears outside of '{' '}' pairs.
+    Handles nested braces correctly via depth tracking.
+    """
+    result = []
+    depth = 0
+
+    for char in s:
+        if char == "{":
+            depth += 1
+            result.append(char)
+        elif char == "}":
+            depth = max(0, depth - 1)  # guard against unmatched '}'
+            result.append(char)
+        elif char == "*" and depth == 0:
+            result.append("\\*")  # outside braces — escape it
+        else:
+            result.append(char)  # inside braces or non-'*' — leave it
+
+    return "".join(result)
+
+
 def _normalize_pure_text_content(text: str) -> str:
-    return text.replace("*", "\\*")
+    text = escape_asterisks_outside_braces(text)
+    text = text.replace("\n", " ")
+    text = text.replace("\xa0", " ")
+    return text
 
 
 def convert_all_mathml_to_latex(root: BeautifulSoup) -> None:
@@ -599,7 +665,13 @@ def _serialize_inline(
         return ""
 
     if node.name in {"em", "i"} or "ltx_font_italic" in node.get("class", []):
-        return f" *{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, footnotes=footnotes).strip()}* "
+        txt = _serialize_children_inline(
+            node,
+            remove_inline_citations=remove_inline_citations,
+            indent=indent,
+            footnotes=footnotes,
+        ).strip()
+        return f" *{txt}* " if txt else ""
 
     if "ltx_font_bold" in node.get("class", []) and "ltx_font_typewriter" in node.get(
         "class", []
@@ -613,7 +685,13 @@ def _serialize_inline(
         return f" **`{_format_content(code_block)}`** "
 
     if node.name in {"strong", "b"} or "ltx_font_bold" in node.get("class", []):
-        return f"**{_serialize_children_inline(node, remove_inline_citations=remove_inline_citations, indent=indent, footnotes=footnotes).strip()}** "
+        txt = _serialize_children_inline(
+            node,
+            remove_inline_citations=remove_inline_citations,
+            indent=indent,
+            footnotes=footnotes,
+        ).strip()
+        return f"**{txt}** " if txt else ""
 
     if node.name == "a":
         text = _serialize_children_inline(
@@ -641,7 +719,7 @@ def _serialize_inline(
             node.select_one("sup").get_text(" ", strip=True)
         )
         footnotes.append(
-            f"[^{text}]: {node.select_one('.ltx_note_outer').get_text(' ', strip=True)}"
+            f"[^{text}]: {_normalize_pure_text_content(node.select_one('.ltx_note_outer').get_text(' ', strip=True))}"
         )
         return f"[^{text}]"
 
@@ -813,15 +891,37 @@ def _update_rowspan_info(
     return values
 
 
+def _serialize_eqn_table(table: Tag) -> str:
+    tbody_list = table.find_all("tbody", recursive=False)
+
+    if not tbody_list:
+        return _correct_multiline_latex_handling(
+            _normalize_text(table.get_text(" ", strip=True))
+        )
+
+    accumulated_val = ""
+    for tbody in tbody_list:
+        txt = _correct_multiline_latex_handling(
+            _normalize_text(tbody.get_text(" ", strip=True))
+        )
+
+        # ensure the methods _normalize_text and  _correct_multiline_latex_handling
+        # are called before creating the \n reformatting and not after it is done.
+        # the new line injection is wanted as this handles multiple tbody math equations
+        # that are present within one table tag.
+        # if we reorder, the method _normalize_text replaces all new lines with spaces
+        # nullyfying the effect of adding \n here
+        accumulated_val += f"{txt}\n"
+    return accumulated_val.strip()
+
+
 def _serialize_table(
     table: Tag, *, remove_inline_citations: bool = False, footnotes: list[str] = []
 ) -> str:
     classes = " ".join(table.get("class", []))
     if _EQUATION_TABLE_RE.search(classes):
-        eqn_text = _normalize_text(table.get_text(" ", strip=True))
-        if not eqn_text:
-            return ""
-        return _correct_multiline_latex_handling(eqn_text)
+        eqn_text = _serialize_eqn_table(table)
+        return eqn_text or ""
 
     rows = []
     rowspan_info: dict[int, list[tuple[int, int]]] = {}
@@ -907,10 +1007,8 @@ def _serialize_span_table(
 ) -> str:
     classes = " ".join(table.get("class", []))
     if _EQUATION_TABLE_RE.search(classes):
-        eqn_text = _normalize_text(table.get_text(" ", strip=True))
-        if not eqn_text:
-            return ""
-        return _correct_multiline_latex_handling(eqn_text)
+        eqn_text = _serialize_eqn_table(table)
+        return eqn_text or ""
 
     rows = []
     rowspan_info: dict[int, list[tuple[int, int]]] = {}
