@@ -104,6 +104,7 @@ _REPLACE_LATEX_COMMANDS = {
     # \big{(} to \big( i.e instead of character within parenthesis, it needs to be
     # just after the styling rule for KaTeX
     r"(\\[Bb]{1}i[g]{1,2}){(.)}": "\\1\\2",
+    r"\\nicefrac": r"\\tfrac",
 }
 
 _FINAL_REPLACE_PATTERNS = {
@@ -343,7 +344,7 @@ def _correct_multiline_latex_handling(eqn_text: str) -> str:
         post = post.strip()
 
         head, tail = _detect_head_tail(eqn_text)
-        eqn_modified += f"{head}{eqn_text} \\tag{{{mid.strip('()')}}}{tail} {post}\n"
+        eqn_modified += f"{head}{eqn_text} \\qquad{{{mid}}}{tail} {post}\n"
 
     if not eqn_modified:
         # case where the equation exists but does not contain a numbering
