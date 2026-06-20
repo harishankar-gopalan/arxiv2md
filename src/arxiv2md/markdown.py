@@ -117,6 +117,7 @@ _FINAL_REPLACE_PATTERNS = {
     # block level tags, in which case the pattern appears as *** in converted MD
     # which does not render as needed
     r"(?<!\\)\*{3}": "** *",
+    r"\n{3,}": "\n\n",
 }
 
 
@@ -344,7 +345,9 @@ def _correct_multiline_latex_handling(eqn_text: str) -> str:
         post = post.strip()
 
         head, tail = _detect_head_tail(eqn_text)
-        eqn_modified += f"{head}{eqn_text} \\qquad{{{mid}}}{tail} {post}\n"
+        eqn_modified += (
+            f"\n{head}\n{eqn_text} \\tag{{{mid.strip('()')}}}\n{tail}\n {post}\n"
+        )
 
     if not eqn_modified:
         # case where the equation exists but does not contain a numbering
@@ -831,6 +834,12 @@ def _cleanup_inline_text(text: str) -> str:
     return text.strip()
 
 
+def _cleanup_eqn_text(text: str) -> str:
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\s*\n\s*", "\n", text)
+    return text
+
+
 def _serialize_list(
     list_tag: Tag,
     indent: int = 0,
@@ -913,7 +922,7 @@ def _serialize_eqn_table(table: Tag) -> str:
         # if we reorder, the method _normalize_text replaces all new lines with spaces
         # nullyfying the effect of adding \n here
         accumulated_val += f"{txt}\n"
-    return accumulated_val.strip()
+    return _cleanup_eqn_text(accumulated_val)
 
 
 def _serialize_table(
