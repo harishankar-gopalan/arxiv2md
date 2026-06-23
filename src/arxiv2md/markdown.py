@@ -105,6 +105,10 @@ _REPLACE_LATEX_COMMANDS = {
     # just after the styling rule for KaTeX
     r"(\\[Bb]{1}i[g]{1,2}){(.)}": "\\1\\2",
     r"\\nicefrac": r"\\tfrac",
+    r"\\arcsec": '"',
+    r"\\arcmin": r"'",
+    r"\\textmu": r"\\mu",
+    r"\\text\{\\mu m\}": r"\\mu m",
 }
 
 _FINAL_REPLACE_PATTERNS = {
@@ -359,7 +363,7 @@ def _correct_multiline_latex_handling(eqn_text: str) -> str:
 
 
 def _sanitize_latex_source(latex_source: str) -> str:
-    latex_source = re.sub(r"(?<!\\)%", "", latex_source)
+    latex_source = re.sub(r"(?<!\\)%|\$", "", latex_source)
     for pattern in _STRIP_LATEX_COMMANDS:
         latex_source = re.sub(pattern, "", latex_source)
 
