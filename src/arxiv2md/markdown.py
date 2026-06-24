@@ -25,23 +25,29 @@ _EQUATION_TABLE_RE = re.compile(r"ltx_equationgroup|ltx_eqn_align|ltx_eqn_table"
 #
 # ideally the above should be changed to
 # $$\quad\eta_{3}=\eta\cdot\frac{1}{d}, ( $\mu$ P)$$
-_EQUATION_NUMBER_RE = re.compile(r"(.*?)(\([0-9A-Za-z]+\))(?![^%]*%@math_en@%)([^\$]*)")
+_EQUATION_NUMBER_RE = re.compile(
+    r"(.*?)(\([0-9A-Za-z\.]+\))(?![^%]*%@math_en@%)([^\$]*)"
+)
 _LATEX_PREFIX = "%@math_st@%"
 _LATEX_SUFFIX = "%@math_en@%"
 _STRIP_LATEX_COMMANDS = [
-    r"\\leavevmode",
-    r"\\nobreak",
-    r"\\relax",
-    r"\\ignorespaces",
-    r"\\pagebreak",
-    r"\\newpage",
-    r"\\clearpage",
-    r"\\cleardoublepage",
     r"\\allowbreak",
+    r"\\cleardoublepage",
+    r"\\clearpage",
+    r"\\hss",
+    r"\\ignorespaces",
+    r"\\leavevmode",
+    r"\\newpage",
+    r"\\nobreak",
+    r"\\pagebreak",
+    r"\\penalty",
+    r"\\ref",
+    r"\\relax",
     r"\\samepage",
-    r"\\strut",
     r"\\sc",
+    r"\\strut",
     r"\\textsc",
+    r"\\vss",
 ]
 
 
@@ -93,13 +99,39 @@ def _substitute_0pt(m: re.Match) -> str:
     return m.group(0)
 
 
+def _substitute_lambda(m: re.Match) -> str:
+    """
+    Handles substituting \\Lambda, \\varLambda, \\lambda with appropriate unicode
+    symbols when present inside a \\textsf or \\text block
+
+    Parameters:
+    -----------
+    m : re.Match
+        Each match object is passed iteratively to this callback method from re.sub call
+
+    Returns:
+    -------
+    str
+        the replaced string
+    """
+    if m.group(1):
+        return (
+            m.group(1)
+            .replace("\\Lambda", "Λ")
+            .replace("\\varLambda", "Λ")
+            .replace("\\varlambda", "Λ")
+            .replace("\\lambda", "λ")
+        )
+    return m.group(0)
+
+
 _REPLACE_LATEX_COMMANDS = {
     r"\\sans": r"\\textsf",
     r"\\mbox": r"\\text",
     r"(?m)(\{[^\\/]*)(\\/)(\})": _substitute_slash_in_latex,
     # very specific case for the paper https://arxiv.org/html/2310.17813 where
     # HTML itself is wrong and gives the string 0pt instead of n
-    r"\\rule\{[^}]*\}\{[^}]*\}|(0pt)": _substitute_0pt,
+    r"\\rule\{[^}]*\}\{[^}]*\}|(?<!\.)(0pt)": _substitute_0pt,
     # replace styling rules like \big, \bigg, \Big, \Bigg appropriately, by replacing
     # \big{(} to \big( i.e instead of character within parenthesis, it needs to be
     # just after the styling rule for KaTeX
@@ -109,6 +141,11 @@ _REPLACE_LATEX_COMMANDS = {
     r"\\arcmin": r"'",
     r"\\textmu": r"\\mu",
     r"\\text\{\\mu m\}": r"\\mu m",
+    r"\\text(?:sf)?\{(\\(?:var)?(?:L|l)?ambda)\}": _substitute_lambda,
+    r"\\begin\{array\}\[\]": r"\\begin{array}",
+    r"\\Tr": r"\\operatorname{Tr}",
+    r"\\imaginary": r"\\operatorname{Im}",
+    r"\\\[[0-9]*(?:\.?[0-9]+)*pt\]": r"\\",
 }
 
 _FINAL_REPLACE_PATTERNS = {
@@ -340,11 +377,20 @@ def _correct_multiline_latex_handling(eqn_text: str) -> str:
             tail = "$"
         return head, tail
 
+    def _remove_dollars(eqn_text: str) -> str:
+        # remove terminal spaces and $'s as this will be added eventually
+        eqn_text = eqn_text.strip().strip("$")
+
+        # substitute all occurences of $ in the middle of equation text that are not
+        # escaped with a \ symbol as in \$ retained, but standalone $ replaced
+        eqn_text = re.sub(r"(?<!\\)\$", "", eqn_text)
+        return eqn_text
+
     matches = _EQUATION_NUMBER_RE.findall(eqn_text)
     for match in matches:
         eqn_text, mid, post = match
 
-        eqn_text = eqn_text.strip().strip("$")
+        eqn_text = _remove_dollars(eqn_text)
         mid = mid.strip()
         post = post.strip()
 
@@ -356,6 +402,7 @@ def _correct_multiline_latex_handling(eqn_text: str) -> str:
     if not eqn_modified:
         # case where the equation exists but does not contain a numbering
         # of the format (1), (2) etc.
+        eqn_text = _remove_dollars(eqn_text)
         head, tail = _detect_head_tail(eqn_text)
         eqn_modified = f"{head}{eqn_text}{tail}"
 
@@ -363,6 +410,96 @@ def _correct_multiline_latex_handling(eqn_text: str) -> str:
 
 
 def _sanitize_latex_source(latex_source: str) -> str:
+    def _strip_mathbf_within_text(ltx_src: str) -> str:
+        if not "\\text{" in ltx_src:
+            return ltx_src
+        if not "\\mathbf{" in ltx_src:
+            return ltx_src
+
+        ltx_new_src = ""
+        depth = -1
+        is_replaced = 0
+        for ch in ltx_src:
+            ltx_new_src += ch
+            if ltx_new_src.endswith("\\text{") or (depth > -1 and ch == "{"):
+                depth = depth + 1
+
+            if depth > -1 and ch == "}":
+                depth = depth - 1
+                if depth == 0 and is_replaced == 1:
+                    ltx_new_src = ltx_new_src.replace("\\text{", "\\mathrm{")
+                    is_replaced = 0
+
+            if depth > -1:
+                if ltx_new_src.endswith("\\mathbf"):
+                    ltx_new_src = ltx_new_src.replace("\\mathbf", "")
+                    is_replaced = 1
+
+        return ltx_new_src
+
+    def _strip_subscript_superscript_within_text(ltx_src: str) -> str:
+        if "\\text{" in ltx_src:
+            new_latex = ""
+            count = 0
+            for ch in ltx_src:
+                new_latex += ch
+                if new_latex.endswith("\\text{") or (
+                    count > 0 and new_latex.endswith("{")
+                ):
+                    count += 1
+                elif new_latex.endswith("}") and count > 0:
+                    count -= 1
+                elif new_latex.endswith("\\_") or new_latex.endswith("\\^"):
+                    if count > 0:
+                        new_latex = new_latex[0:-2] + "{" + new_latex[-2:] + "}"
+                    else:
+                        new_latex = new_latex[0:-2] + "_"
+            return new_latex
+        else:
+            ltx_src = re.sub(r"\\([_^])", r"\1", ltx_src)
+            ltx_src = re.sub(r"\\(?=[\[\]])", "", ltx_src)
+            return ltx_src
+
+    def _modify_leq_within_text(ltx_src: str) -> str:
+        if "\\text{" in ltx_src and "\\leq" in ltx_src:
+            new_latex = ""
+            count = 0
+            for ch in ltx_src:
+                new_latex += ch
+                if new_latex.endswith("\\text{") or (
+                    count > 0 and new_latex.endswith("{")
+                ):
+                    count += 1
+                elif new_latex.endswith("}") and count > 0:
+                    count -= 1
+                elif new_latex.endswith("\\leq") and count > 0:
+                    new_latex = new_latex[0:-4] + "≤"
+            return new_latex
+        else:
+            return ltx_src
+
+    def _strip_mathfrak_within_text(ltx_src: str) -> str:
+        if not "\\text{" in ltx_src:
+            return ltx_src
+        if not "\\mathfrak{" in ltx_src:
+            return ltx_src
+
+        ltx_new_src = ""
+        depth = -1
+        for ch in ltx_src:
+            ltx_new_src += ch
+            if ltx_new_src.endswith("\\text{") or (depth > -1 and ch == "{"):
+                depth = depth + 1
+
+            if depth > -1 and ch == "}":
+                depth = depth - 1
+
+            if depth > -1:
+                if ltx_new_src.endswith("\\mathfrak"):
+                    ltx_new_src = ltx_new_src.replace("\\mathfrak", "")
+
+        return ltx_new_src
+
     latex_source = re.sub(r"(?<!\\)%|\$", "", latex_source)
     for pattern in _STRIP_LATEX_COMMANDS:
         latex_source = re.sub(pattern, "", latex_source)
@@ -370,25 +507,12 @@ def _sanitize_latex_source(latex_source: str) -> str:
     for pattern, replacement in _REPLACE_LATEX_COMMANDS.items():
         latex_source = re.sub(pattern, replacement, latex_source)
 
-    if "\\text{" in latex_source:
-        new_latex = ""
-        count = 0
-        for ch in latex_source:
-            new_latex += ch
-            if new_latex.endswith("\\text{") or (count > 0 and new_latex.endswith("{")):
-                count += 1
-            elif new_latex.endswith("}") and count > 0:
-                count -= 1
-            elif new_latex.endswith("\\_") or new_latex.endswith("\\^"):
-                if count > 0:
-                    new_latex = new_latex[0:-2] + "{" + new_latex[-2:] + "}"
-                else:
-                    new_latex = new_latex[0:-2] + "_"
-        return new_latex
-    else:
-        latex_source = re.sub(r"\\([_^])", r"\1", latex_source)
-        latex_source = re.sub(r"\\(?=[\[\]])", "", latex_source)
-        return latex_source
+    latex_source = _strip_mathbf_within_text(latex_source)
+    latex_source = _strip_subscript_superscript_within_text(latex_source)
+    latex_source = _modify_leq_within_text(latex_source)
+    latex_source = _strip_mathfrak_within_text(latex_source)
+
+    return latex_source
 
 
 def escape_asterisks_outside_braces(s: str) -> str:
@@ -727,7 +851,7 @@ def _serialize_inline(
             node.select_one("sup").get_text(" ", strip=True)
         )
         footnotes.append(
-            f"[^{text}]: {_normalize_pure_text_content(node.select_one('.ltx_note_outer').get_text(' ', strip=True))}"
+            f"[^{text}]: {_normalize_pure_text_content(node.select_one('.ltx_note_outer').get_text(' ', strip=True))}  "
         )
         return f"[^{text}]"
 
@@ -1111,6 +1235,7 @@ def _serialize_figure(
     # Check if this is a table figure (ltx_table class)
     figure_classes = " ".join(figure.get("class", []))
     is_table_figure = "ltx_table" in figure_classes
+    is_algorithm_figure = "ltx_framed" in figure_classes
 
     caption_tag = figure.find("figcaption")
     caption = (
@@ -1156,6 +1281,18 @@ def _serialize_figure(
             else:
                 # Fallback if no table found but has caption
                 lines.append(f"Table: {caption}")
+    elif is_algorithm_figure:
+        div = figure.find("div")
+        if div:
+            inner_line_divs = div.find_all("div")
+        lines.append(f">{caption}")
+        lines.append(f">---  ")
+        lines.extend(
+            [
+                f">{inner_line_div.get_text(' ', strip=True)}  "
+                for inner_line_div in inner_line_divs
+            ]
+        )
     else:
         # Handle regular image figures
         img = figure.find("img")
