@@ -8,7 +8,7 @@ __pycache__/
 .arxiv2md_cache/
 *.txt
 !requirements.txt
-bulk_tests/base_outputs
+bulk_tests/base_outputs*
 bulk_tests/outputs
 bulk_tests/logs
 
