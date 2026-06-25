@@ -205,7 +205,9 @@ def _iter_headings(root: Tag) -> Iterable[Tag]:
             continue
         if heading.find_parent(class_=re.compile(r"ltx_abstract")):
             continue
-        if "ltx_runin" in heading.get("class", []):
+        if "ltx_runin" in heading.get("class", []) and not heading.find_parent(
+            "section", class_=["ltx_paragraph"]
+        ):
             # cases where h6 tags are used for local heading for theorems,
             # corollary, remarks etc.
             continue

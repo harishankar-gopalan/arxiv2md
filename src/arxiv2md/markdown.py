@@ -146,6 +146,7 @@ _REPLACE_LATEX_COMMANDS = {
     r"\\Tr": r"\\operatorname{Tr}",
     r"\\imaginary": r"\\operatorname{Im}",
     r"\\\[[0-9]*(?:\.?[0-9]+)*pt\]": r"\\",
+    r"\\vskip\s+\[?[0-9]*(?:\.?[0-9]+)?(?:pt|em)\]?": r"",
 }
 
 _FINAL_REPLACE_PATTERNS = {
@@ -625,7 +626,13 @@ def _serialize_children(
                     and (
                         "ltx_para" in child.get("class", [])
                         or "ltx_p" in child.get("class", [])
+                        or "ltx_itemize" in child.get("class", [])
                     )
+                )
+                or (
+                    "ltx_minipage" in container.parent.get("class", [])
+                    and "ltx_quote" in container.get("class", [])
+                    and "ltx_p" in child.get("class", [])
                 )
             )
         ):
@@ -736,12 +743,20 @@ def _serialize_abstract(tag: Tag) -> tuple[list[str], list[str]]:
 
 
 def _serialize_paragraph(
-    tag: Tag, *, remove_inline_citations: bool = False, footnotes: list[str] = []
+    tag: Tag,
+    *,
+    remove_inline_citations: bool = False,
+    footnotes: list[str] = [],
+    maintain_terminal_spaces: bool = False,
 ) -> str:
     content = _serialize_inline(
         tag, remove_inline_citations=remove_inline_citations, footnotes=footnotes
     )
-    content = _cleanup_inline_text(content)
+
+    if maintain_terminal_spaces:
+        content = _cleanup_non_terminal_spaces(content)
+    else:
+        content = _cleanup_inline_text(content)
     return content
 
 
@@ -927,6 +942,16 @@ def _serialize_inline(
         )
         return table_md
 
+    if "ltx_item" in node.get("class", []):
+        item_text = _serialize_children_inline(
+            node,
+            remove_inline_citations=remove_inline_citations,
+            indent=indent,
+            nested_table=nested_table,
+            footnotes=footnotes,
+        )
+        return item_text + "\n"
+
     return _serialize_children_inline(
         node,
         remove_inline_citations=remove_inline_citations,
@@ -965,6 +990,23 @@ def _cleanup_inline_text(text: str) -> str:
 def _cleanup_eqn_text(text: str) -> str:
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\s*\n\s*", "\n", text)
+    return text
+
+
+def _replace_terminal_spaces(s):
+    # modifying the terminal " " character to the non-breaking unicode space character
+    # so that these get rendered in markdown, in general the normal space characters are
+    # not rendered by markdown renderers as they are considered superfluous
+    NBSP = "\u00a0"
+    s = re.sub(r"^ +", lambda m: NBSP * len(m.group()), s)
+    s = re.sub(r" +$", lambda m: NBSP * len(m.group()), s)
+    return s
+
+
+def _cleanup_non_terminal_spaces(text: str) -> str:
+    text = text.replace("\t\n", " ")
+    text = re.sub(r"(?<=\S) +(?=\S)", " ", text)
+    text = _replace_terminal_spaces(text)
     return text
 
 
@@ -1229,24 +1271,50 @@ def _serialize_span_table(
     return "\n".join(lines)
 
 
+def _minipage_figure(
+    minipage_span: Tag,
+    *,
+    remove_inline_citations: bool = False,
+    footnotes: list[str] = [],
+) -> str:
+    lines = []
+    lines.extend(
+        _serialize_children(
+            minipage_span,
+            remove_inline_citations=remove_inline_citations,
+            footnotes=footnotes,
+        )
+    )
+    return "\n".join(lines).strip()
+
+
 def _serialize_figure(
     figure: Tag, *, remove_inline_citations: bool = False, footnotes: list[str] = []
 ) -> str:
     # Check if this is a table figure (ltx_table class)
     figure_classes = " ".join(figure.get("class", []))
+    recursive_figures = figure.find_all("figure")
     is_table_figure = "ltx_table" in figure_classes
-    is_algorithm_figure = "ltx_framed" in figure_classes
+    is_algorithm_figure = (
+        "ltx_framed" in figure_classes or "ltx_algorithm" in figure_classes
+    )
+    is_ltx_listing_figure = "ltx_lstlisting" in figure_classes
+    minipage_figures = [
+        tag
+        for tag in figure.select("span span.ltx_minipage")
+        if not tag.find_parent(class_="ltx_minipage")
+    ]
 
-    caption_tag = figure.find("figcaption")
+    caption_tags = figure.find_all("figcaption")
     caption = (
         _normalize_text(
             _serialize_inline(
-                caption_tag,
+                caption_tags[0] if not recursive_figures else caption_tags[-1],
                 remove_inline_citations=remove_inline_citations,
                 footnotes=footnotes,
             )
         )
-        if caption_tag
+        if caption_tags
         else ""
     )
 
@@ -1289,21 +1357,58 @@ def _serialize_figure(
         lines.append(f">---  ")
         lines.extend(
             [
-                f">{inner_line_div.get_text(' ', strip=True)}  "
+                f">{_serialize_paragraph(inner_line_div, remove_inline_citations=remove_inline_citations, footnotes=footnotes, maintain_terminal_spaces=True)}  "
                 for inner_line_div in inner_line_divs
             ]
         )
-    else:
-        # Handle regular image figures
-        img = figure.find("img")
-        src = img.get("src") if img else None
-        alt = img.get("alt") if img else None
-        if src:
-            image_label = alt or "Image"
-            lines.append(f"![{image_label}]({src})  ")
+    elif minipage_figures:
+        for minipage_figure in minipage_figures:
+            lines.append(_minipage_figure(minipage_figure))
 
         if caption:
             if not caption.lower().startswith("figure"):
+                lines.append(f"Figure: {caption}")
+            else:
+                lines.append(f"{caption}")
+    elif is_ltx_listing_figure:
+        lines.extend(_serialize_children(figure.find("div", class_="ltx_listing")))
+        if caption:
+            if not (
+                caption.lower().startswith("figure")
+                or caption.lower().startswith("listing")
+            ):
+                lines.append(f"Figure: {caption}")
+            else:
+                lines.append(f"{caption}")
+    else:
+        if recursive_figures:
+            for fig in recursive_figures:
+                lines.append(
+                    _serialize_figure(
+                        fig,
+                        remove_inline_citations=remove_inline_citations,
+                        footnotes=footnotes,
+                    )
+                )
+
+        if not recursive_figures:
+            # Handle regular image figures
+            imgs = figure.find_all("img")
+            if imgs:
+                for img in imgs:
+                    src = img.get("src") if img else None
+                    alt = img.get("alt") if img else None
+                    if src:
+                        image_label = alt or "Image"
+                        lines.append(f"![{image_label}]({src})  ")
+
+        if caption:
+            # when ltx_figure_panel is in classes it is generally a nested list of figures
+            # so the Figure prefix will be given only for the outermost caption
+            if (
+                not caption.lower().startswith("figure")
+                and "ltx_figure_panel" not in figure_classes
+            ):
                 lines.append(f"Figure: {caption}")
             else:
                 lines.append(f"{caption}")
