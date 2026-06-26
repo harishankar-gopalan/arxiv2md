@@ -156,10 +156,10 @@ def _clean_author_text(node: Tag) -> list[str]:
     return cleaned
 
 
-def _extract_abstract(soup: BeautifulSoup) -> str | None:
+def _extract_abstract(soup: BeautifulSoup) -> tuple[str | None, str | None]:
     abstract = soup.find(class_=re.compile(r"ltx_abstract"))
     if not abstract:
-        return None
+        return None, None
 
     # Section header for abstract is already added in
     # output_formatter._render_content, so omit extract 'Abstract' titling
@@ -168,7 +168,7 @@ def _extract_abstract(soup: BeautifulSoup) -> str | None:
         abstract_title.decompose()
 
     abs_cont, abs_footnote = convert_fragment_to_markdown(html=str(abstract))
-    return abs_cont.strip(), abs_footnote.strip()  # abstract.get_text(" ", strip=True)
+    return abs_cont.strip(), abs_footnote.strip()
 
 
 def _extract_sections(root: Tag) -> list[SectionNode]:

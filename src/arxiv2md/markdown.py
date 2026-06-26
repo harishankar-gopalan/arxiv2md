@@ -147,6 +147,7 @@ _REPLACE_LATEX_COMMANDS = {
     r"\\imaginary": r"\\operatorname{Im}",
     r"\\\[[0-9]*(?:\.?[0-9]+)*pt\]": r"\\",
     r"\\vskip\s+\[?[0-9]*(?:\.?[0-9]+)?(?:pt|em)\]?": r"",
+    r"\\farcs": r"\\prime\\prime.",
 }
 
 _FINAL_REPLACE_PATTERNS = {
@@ -680,6 +681,9 @@ def _serialize_block(
 
     if tag.name == "pre" and "ltx_listing_pre" in tag.get("class", []):
         return [tag.string]
+
+    if tag.name == "pre" and "ltx_font_typewriter" in tag.get("class", []):
+        return [f"```\n{tag.string}\n```"]
 
     if tag.name == "p":
         paragraph = _serialize_paragraph(
@@ -1288,6 +1292,21 @@ def _minipage_figure(
     return "\n".join(lines).strip()
 
 
+def _check_and_return_caption(
+    caption: str, prefix_check: str | list[str] = "", prefix_add: str = ""
+) -> str:
+    if not prefix_check and not prefix_add:
+        return caption
+
+    if type(prefix_check) == str:
+        prefix_check = [prefix_check]
+
+    if any([caption.lower().startswith(prefix) for prefix in prefix_check]):
+        return caption
+    else:
+        return f"{prefix_add}{caption}"
+
+
 def _serialize_figure(
     figure: Tag, *, remove_inline_citations: bool = False, footnotes: list[str] = []
 ) -> str:
@@ -1314,7 +1333,10 @@ def _serialize_figure(
                 footnotes=footnotes,
             )
         )
-        if caption_tags
+        # case when the overall figure tag does not have a fig caption, this check
+        # prevents the last figure's caption from being repeated as the overall figure's
+        # caption
+        if (caption_tags and len(caption_tags) == len(recursive_figures) + 1)
         else ""
     )
 
@@ -1334,6 +1356,12 @@ def _serialize_figure(
                 lines.append(f"**{caption}**")
             if table_md:
                 lines.append(table_md)
+        elif minipage_figures:
+            for minipage_figure in minipage_figures:
+                lines.append(_minipage_figure(minipage_figure))
+
+            if caption:
+                lines.append(_check_and_return_caption(caption, "figure", "Figure: "))
         elif caption:
             span_table = figure.find("span", attrs={"class": "ltx_tabular"})
             if span_table:
@@ -1366,20 +1394,13 @@ def _serialize_figure(
             lines.append(_minipage_figure(minipage_figure))
 
         if caption:
-            if not caption.lower().startswith("figure"):
-                lines.append(f"Figure: {caption}")
-            else:
-                lines.append(f"{caption}")
+            lines.append(_check_and_return_caption(caption, "figure", "Figure: "))
     elif is_ltx_listing_figure:
         lines.extend(_serialize_children(figure.find("div", class_="ltx_listing")))
         if caption:
-            if not (
-                caption.lower().startswith("figure")
-                or caption.lower().startswith("listing")
-            ):
-                lines.append(f"Figure: {caption}")
-            else:
-                lines.append(f"{caption}")
+            lines.append(
+                _check_and_return_caption(caption, ["figure", "listing"], "Figure: ")
+            )
     else:
         if recursive_figures:
             for fig in recursive_figures:
@@ -1405,13 +1426,10 @@ def _serialize_figure(
         if caption:
             # when ltx_figure_panel is in classes it is generally a nested list of figures
             # so the Figure prefix will be given only for the outermost caption
-            if (
-                not caption.lower().startswith("figure")
-                and "ltx_figure_panel" not in figure_classes
-            ):
-                lines.append(f"Figure: {caption}")
-            else:
+            if "ltx_figure_panel" in figure_classes:
                 lines.append(f"{caption}")
+            else:
+                lines.append(_check_and_return_caption(caption, "figure", "Figure: "))
 
     return "\n".join(lines).strip()
 
