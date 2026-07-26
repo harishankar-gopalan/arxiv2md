@@ -11,7 +11,11 @@ Convert arXiv papers to LLM-ready Markdown. Parses arXiv's native HTML (not PDFs
 
 Base URL: `https://arxiv2md.org`
 
-No auth required. Rate limit: 30 requests/minute.
+No auth, no key, no SDK. Rate limit: 30 requests/minute per IP. Results are cached server-side for 24h.
+
+> **Don't just swap the hostname.** Visiting `https://arxiv2md.org/abs/2501.11120`
+> (replacing `arxiv.org` → `arxiv2md.org`) returns the **HTML web app** for humans,
+> not Markdown. For programmatic use always call `/api/markdown` or `/api/json` below.
 
 ### Get markdown
 
@@ -44,7 +48,7 @@ All optional query params for both endpoints:
 ### Examples
 
 ```bash
-# Get just abstract and introduction
+# Plain markdown for a paper
 curl "https://arxiv2md.org/api/markdown?url=2501.11120"
 
 # Keep references and citations intact
@@ -77,3 +81,35 @@ arxiv2md 2501.11120v1 --remove-refs --remove-toc -o -
 # With YAML frontmatter
 arxiv2md 2501.11120v1 --frontmatter -o paper.md
 ```
+
+Section filtering (`--section-filter-mode` + `--sections`) is available in the CLI and
+Python library, not the REST API.
+
+## Python library
+
+Import name is `arxiv2md`:
+
+```python
+from arxiv2md import ingest_paper_sync
+
+result = ingest_paper_sync("2501.11120v1")
+print(result.content)
+
+# Async variant
+from arxiv2md import ingest_paper
+result = await ingest_paper("2501.11120v1")
+```
+
+Optional kwargs (same for both): `remove_refs`, `remove_toc`, `remove_inline_citations`
+(all `True`), `section_filter_mode` (`"exclude"`), `sections` (`None` = all),
+`include_frontmatter` (`False`).
+
+> The REST API names the citation flag `remove_citations`; the CLI and Python library
+> name it `remove_inline_citations`. Same behavior.
+
+## Links
+
+- Web app: https://arxiv2md.org
+- Machine-readable guide: https://arxiv2md.org/llms.txt
+- Source: https://github.com/timf34/arxiv2md
+- PyPI: https://pypi.org/project/arxiv2markdown/
