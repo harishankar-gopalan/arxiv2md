@@ -50,6 +50,8 @@ _STRIP_LATEX_COMMANDS = [
     r"\\vss",
 ]
 
+CAPTION_PREFIXES = ["figure", "table", "listing"]
+
 
 def _substitute_slash_in_latex(m: re.Match) -> str:
     """
@@ -628,6 +630,7 @@ def _serialize_children(
                         "ltx_para" in child.get("class", [])
                         or "ltx_p" in child.get("class", [])
                         or "ltx_itemize" in child.get("class", [])
+                        or "ltx_listing" in child.get("class", [])
                     )
                 )
                 or (
@@ -1324,7 +1327,11 @@ def _serialize_figure(
         if not tag.find_parent(class_="ltx_minipage")
     ]
 
-    caption_tags = figure.find_all("figcaption")
+    caption_tags = [
+        fig_caption
+        for fig_caption in figure.find_all("figcaption")
+        if fig_caption.find_parent("figure") is figure
+    ]
     caption = (
         _normalize_text(
             _serialize_inline(
@@ -1335,8 +1342,17 @@ def _serialize_figure(
         )
         # case when the overall figure tag does not have a fig caption, this check
         # prevents the last figure's caption from being repeated as the overall figure's
-        # caption
-        if (caption_tags and len(caption_tags) == len(recursive_figures) + 1)
+        # caption, if number of captions match number of figures, then each caption is
+        # added for each figure, else need to add the caption
+        # three cases:
+        # 1. overall caption + caption for each figure within a figure tag
+        # 2. only caption for each figure available though present within an overall figure tag
+        # 3. recursive figure tag present but only one figure within top level recursive figure tag
+        # There are some failure modes still, but they become too specific to handle
+        if (
+            caption_tags
+            and (len(caption_tags) == 1 or len(caption_tags) != len(recursive_figures))
+        )
         else ""
     )
 
@@ -1361,7 +1377,9 @@ def _serialize_figure(
                 lines.append(_minipage_figure(minipage_figure))
 
             if caption:
-                lines.append(_check_and_return_caption(caption, "figure", "Figure: "))
+                lines.append(
+                    _check_and_return_caption(caption, CAPTION_PREFIXES, "Figure: ")
+                )
         elif caption:
             span_table = figure.find("span", attrs={"class": "ltx_tabular"})
             if span_table:
@@ -1376,30 +1394,54 @@ def _serialize_figure(
                     lines.append(span_table_md)
             else:
                 # Fallback if no table found but has caption
-                lines.append(f"Table: {caption}")
+                lines.append(
+                    f"Table: {caption}"
+                    if not caption.lower().startswith("table")
+                    else f"{caption}"
+                )
     elif is_algorithm_figure:
         div = figure.find("div")
+        span = figure.select_one("span span.ltx_minipage")
         if div:
             inner_line_divs = div.find_all("div")
+        elif span:
+            inner_minipage_figs = span.parent.select("span.ltx_minipage")
+
         lines.append(f">{caption}")
         lines.append(f">---  ")
-        lines.extend(
-            [
-                f">{_serialize_paragraph(inner_line_div, remove_inline_citations=remove_inline_citations, footnotes=footnotes, maintain_terminal_spaces=True)}  "
-                for inner_line_div in inner_line_divs
-            ]
-        )
+        if div:
+            lines.extend(
+                [
+                    f">{_serialize_paragraph(inner_line_div, remove_inline_citations=remove_inline_citations, footnotes=footnotes, maintain_terminal_spaces=True)}  "
+                    for inner_line_div in inner_line_divs
+                ]
+            )
+        else:
+            for minipage_figure in inner_minipage_figs:
+                lines.extend(
+                    list(
+                        map(
+                            lambda s: f">{s}",
+                            re.split(
+                                r"\u2004\u200a|\u2003\u2004|\n",
+                                _minipage_figure(minipage_figure),
+                            ),
+                        )
+                    )
+                )
     elif minipage_figures:
         for minipage_figure in minipage_figures:
             lines.append(_minipage_figure(minipage_figure))
 
         if caption:
-            lines.append(_check_and_return_caption(caption, "figure", "Figure: "))
+            lines.append(
+                _check_and_return_caption(caption, CAPTION_PREFIXES, "Figure: ")
+            )
     elif is_ltx_listing_figure:
         lines.extend(_serialize_children(figure.find("div", class_="ltx_listing")))
         if caption:
             lines.append(
-                _check_and_return_caption(caption, ["figure", "listing"], "Figure: ")
+                _check_and_return_caption(caption, CAPTION_PREFIXES, "Figure: ")
             )
     else:
         if recursive_figures:
@@ -1429,9 +1471,15 @@ def _serialize_figure(
             if "ltx_figure_panel" in figure_classes:
                 lines.append(f"{caption}")
             else:
-                lines.append(_check_and_return_caption(caption, "figure", "Figure: "))
+                lines.append(
+                    _check_and_return_caption(caption, CAPTION_PREFIXES, "Figure: ")
+                )
 
-    return "\n".join(lines).strip()
+    return (
+        "\n".join(lines).strip()
+        if not recursive_figures
+        else "\n\n".join(lines).strip()
+    )
 
 
 def _normalize_text(text: str) -> str:
