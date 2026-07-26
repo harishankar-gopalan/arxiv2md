@@ -1,6 +1,6 @@
 [project]
 name = "arxiv2markdown"
-version = "0.1.0"
+version = "0.1.1"
 description = "Convert arXiv papers to clean Markdown. Particularly useful for prompting LLMs."
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [{ name = "Tim Farrelly", email = "timf34@gmail.com" }]
