@@ -7,9 +7,9 @@ base_folder = Path(__file__).resolve().parent.parent
 
 
 def run_conv(arxiv_id: str):
-    cnt = arxiv2md.ingest_paper_sync(arxiv_id, remove_inline_citations=False).content
+    cnt, _ = arxiv2md.ingest_paper_sync(arxiv_id, remove_inline_citations=False)
     with open(f"{base_folder}/outputs/{arxiv_id}.md", "w") as fp:
-        fp.write(cnt)
+        fp.write(cnt.content)
 
 
 if len(sys.argv) > 1:

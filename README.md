@@ -75,13 +75,13 @@ Rate limit: 30 requests/minute per IP.
 ```python
 from arxiv2md import ingest_paper_sync
 
-result = ingest_paper_sync("2501.11120v1")
+result, metadata = ingest_paper_sync("2501.11120v1")
 print(result.content)
 
 # or use the async version
 from arxiv2md import ingest_paper
 
-result = await ingest_paper("2501.11120v1")
+result, metadata = await ingest_paper("2501.11120v1")
 ```
 
 Both accept the same optional keyword arguments:

@@ -92,12 +92,12 @@ Import name is `arxiv2md`:
 ```python
 from arxiv2md import ingest_paper_sync
 
-result = ingest_paper_sync("2501.11120v1")
+result, metadata = ingest_paper_sync("2501.11120v1")
 print(result.content)
 
 # Async variant
 from arxiv2md import ingest_paper
-result = await ingest_paper("2501.11120v1")
+result, metadata = await ingest_paper("2501.11120v1")
 ```
 
 Optional kwargs (same for both): `remove_refs`, `remove_toc`, `remove_inline_citations`

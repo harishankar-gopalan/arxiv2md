@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Literal
+from typing import Dict, Literal, Tuple
 
 from arxiv2md.ingestion import ingest_paper as _ingest_paper
 from arxiv2md.query_parser import parse_arxiv_input
@@ -33,7 +33,7 @@ async def ingest_paper(
     section_filter_mode: Literal["include", "exclude"] = "exclude",
     sections: list[str] | None = None,
     include_frontmatter: bool = False,
-) -> IngestionResult:
+) -> Tuple[IngestionResult, Dict[str, str]]:
     """Fetch, parse, and serialize an arXiv paper into Markdown.
 
     Args:
@@ -51,6 +51,7 @@ async def ingest_paper(
     Returns:
         IngestionResult with ``.content``, ``.summary``, ``.sections_tree``,
         and ``.frontmatter``.
+        Metadata dict with ``.title``, ``.abstract``, ``.authors``
 
     Raises:
         ValueError: If ``arxiv_id`` is not a recognised arXiv ID or URL, or
@@ -74,7 +75,7 @@ async def ingest_paper(
         sections=sections or [],
         include_frontmatter=include_frontmatter,
     )
-    return result
+    return result, _metadata
 
 
 def ingest_paper_sync(
@@ -86,7 +87,7 @@ def ingest_paper_sync(
     section_filter_mode: Literal["include", "exclude"] = "exclude",
     sections: list[str] | None = None,
     include_frontmatter: bool = False,
-) -> IngestionResult:
+) -> Tuple[IngestionResult, Dict[str, str]]:
     """Synchronous version of :func:`ingest_paper`. Same parameters and
     behaviour — use this when not in an async context.
 

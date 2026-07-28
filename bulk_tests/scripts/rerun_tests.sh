@@ -62,6 +62,10 @@ arxiv_ids=(
 
 mkdir --parents "$script_home/outputs" "$script_home/logs"
 
+export ARXIV2MD_CACHE_PATH="$script_home/.arxiv2md_cache"
+export ARXIV2MD_CACHE_TTL_SECONDS="$((24 * 60 * 60 * 30))"
+export ARXIV2MD_CACHE_MAX_SIZE_MB="$((5 * 1024))"
+
 for arxiv_id in "${arxiv_ids[@]}"
 do
     python "$script_home/scripts/convert_to_md.py" "$arxiv_id" > "$script_home/logs/$arxiv_id.txt"
