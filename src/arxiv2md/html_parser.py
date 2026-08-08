@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Iterable
 
+from arxiv2md.html_reorder import rearrange_if_needed
 from arxiv2md.markdown import convert_fragment_to_markdown
 from arxiv2md.schemas import SectionNode
 
@@ -44,6 +45,7 @@ class ParsedArxivHtml:
 def parse_arxiv_html(html: str) -> ParsedArxivHtml:
     """Extract title, authors, abstract, and section tree from HTML."""
     soup = BeautifulSoup(html, "html.parser")
+    _ = rearrange_if_needed(soup, cleanup=False)
     document_root = _find_document_root(soup)
 
     title = _extract_title(soup)

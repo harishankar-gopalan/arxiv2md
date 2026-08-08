@@ -28,6 +28,7 @@ arxiv_ids=(
     "2606.12360v2"
     "2606.24597v1"
     "2607.20769"
+    "2607.13162v1"
 
     # astro-ph
     "2507.2053"
@@ -58,6 +59,18 @@ arxiv_ids=(
     "2606.24170v1"
     "2606.24238v1"
     "2606.24310v1"
+
+    # cond-math
+    "2605.07685"
+
+    # repetition issues found in the below
+    "2608.03647"
+    "2608.04565"
+
+    # latex parsing issues found in the below
+    "2608.03549"
+    "2608.04790"
+
 )
 
 mkdir --parents "$script_home/outputs" "$script_home/logs"
@@ -68,5 +81,6 @@ export ARXIV2MD_CACHE_MAX_SIZE_MB="$((5 * 1024))"
 
 for arxiv_id in "${arxiv_ids[@]}"
 do
+    echo "> Info: Processing arxiv_id=$arxiv_id"
     python "$script_home/scripts/convert_to_md.py" "$arxiv_id" > "$script_home/logs/$arxiv_id.txt"
 done

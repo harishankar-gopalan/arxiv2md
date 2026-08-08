@@ -48,6 +48,9 @@ _STRIP_LATEX_COMMANDS = [
     r"\\strut",
     r"\\textsc",
     r"\\vss",
+    r"\\makebox(\[[^\]]*\])*\{[^{}]*\}",
+    r"\{(?:\\mathchoice\{\}\{\}\{\}\{\})+\}",
+    r"(?:\\mathchoice\{\}\{\}\{\}\{\})+",
 ]
 
 CAPTION_PREFIXES = ["figure", "table", "listing"]
@@ -150,6 +153,15 @@ _REPLACE_LATEX_COMMANDS = {
     r"\\\[[0-9]*(?:\.?[0-9]+)*pt\]": r"\\",
     r"\\vskip\s+\[?[0-9]*(?:\.?[0-9]+)?(?:pt|em)\]?": r"",
     r"\\farcs": r"\\prime\\prime.",
+    # below 4 regexes strip extra '{' and '}' surrounding [A-Za-z0-9+-*] class eg. '{-a}'
+    # this pattern is seen often after stripping commands, so we are replacing them with
+    # the inner most capturing group as extra '{', '}' are redundant in LaTeX
+    # eg '{{{+a}}}' replaced with '{+a}'
+    r"\{{4}(\{[\-\+\*A-Za-z0-9]{1,5}\})\}{4}": "\\1",
+    r"\{{3}(\{[\-\+\*A-Za-z0-9]{1,5}\})\}{3}": "\\1",
+    r"\{{2}(\{[\-\+\*A-Za-z0-9]{1,5}\})\}{2}": "\\1",
+    r"\{{1}(\{[\-\+\*A-Za-z0-9]{1,5}\})\}{1}": "\\1",
+    r"\^\{\}": r"",
 }
 
 _FINAL_REPLACE_PATTERNS = {
